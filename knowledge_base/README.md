@@ -1,5 +1,7 @@
 # UI·도메인 자료 인계
 
+필드별 설명과 검수 방법은 [DOMAIN_HANDOFF.md](DOMAIN_HANDOFF.md), 합성 정답 예시 10쌍은 `evaluation_cases.jsonl`을 참조합니다. 누락 값은 API 규격의 `식별 불가`로 통일하고, 관련 근거가 없는 `recommended_action`은 빈 문자열입니다.
+
 `chunks.jsonl`은 20개 청크입니다. 공식 교범 20개를 확보한 상태는 아닙니다.
 
 - TAC-001~008: 기존 초안 내용 보존. 외부 출처 미확인으로 synthetic=true, review_status=unverified 표시. 검증된 권고에 사용하지 않습니다.
