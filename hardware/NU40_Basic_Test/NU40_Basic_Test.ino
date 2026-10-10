@@ -95,9 +95,13 @@ void handleCommands() {
   const bool fromBle = bleuart.available();
   const char command = fromBle ? bleuart.read() : Serial.read();
   if (fromBle) { receiveRecordingCommand(command, millis()); return; }
-  if (command == 'g') requestRecording(millis()); // USB integration-test trigger.
+  if (command == 'g') requestRecording(millis());
+  if (command == 'j') dispatchGesture(YES_AXIS,millis());
+  if (command == 'k') dispatchGesture(NO_AXIS,millis()); // USB integration-test trigger.
   if (!fromBle && command == 'i') { printImuInfo(); imuStreaming = true; }
   if (!fromBle && command == 'o') imuStreaming = false;
+  if (command == 'f') { imuOutputInterval = 20; imuStreaming = true; }
+  if (command == 'w') imuOutputInterval = 100;
   if (command == 'v') {
     hapticPulseCount = 2; hapticOnMs = 120; hapticGapMs = 160;
     manualPulse = true;

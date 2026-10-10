@@ -1,3 +1,7 @@
+# 현재 모션 입력
+
+NU40는 BLE ASCII s/e/y/n을 전송한다. UI_BLE_BRIDGE.md와 BLE_RECORDING_PROTOCOL.md가 현재 규약이다. ui_ble_adapter.js가 프론트엔드의 버튼 및 F13/F14로 연결한다. 아래 HID 항목은 기존 UI 키보드 인터페이스 참고이며 보드가 HID를 보내는 것은 아니다.
+
 # NUCODE → UI 모션 입력 규격
 
 보드는 모션을 감지한 뒤 HID 키 누름/해제 한 쌍을 전송한다. UI는 keydown에서만 처리하며 자동 반복은 무시한다. 실제 모션 감지 펌웨어는 아직 구현되지 않았다.
