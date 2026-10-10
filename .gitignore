@@ -30,3 +30,4 @@ all_showcases.json
 
 # Generated tactical report scripts
 ai_pipeline/scripts/
+ai_pipeline/logs/
