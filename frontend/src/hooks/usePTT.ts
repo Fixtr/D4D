@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { SystemStatus, TacticalReport } from '../types/tactical'
 import { MOCK_SCENARIOS } from '../data/mockScenarios'
+import { parseApiReport } from '../data/reportHistory'
 
 
 interface UsePTTOptions {
   onReportGenerated?: (report: TacticalReport) => void
   onTranscriptUpdate?: (transcript: string) => void
+  mode?: 'demo' | 'api'
   apiEndpoint?: string
 }
 
-export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: UsePTTOptions = {}) {
+export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint, mode = apiEndpoint ? 'api' : 'demo' }: UsePTTOptions = {}) {
   const [status, setStatus] = useState<SystemStatus>('STANDBY')
   const [audioLevel, setAudioLevel] = useState<number>(0)
   const [mockIndex, setMockIndex] = useState<number>(0)
@@ -46,8 +48,12 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: U
   // PTT 활성화 (버튼 누름)
   const startPTT = useCallback(async () => {
     if (isPressedRef.current || isProcessingRef.current) return
+    if (mode === 'api' && !apiEndpoint) {
+      setNotice('실제 API 모드: 서버 주소가 아직 설정되지 않았습니다. 샘플은 생성하지 않습니다.')
+      return
+    }
     isPressedRef.current = true
-    setNotice(apiEndpoint ? '' : '데모 모드: 녹음 내용과 관계없이 샘플 보고서를 표시합니다.')
+    setNotice(mode === 'api' ? '' : '데모 모드: 녹음 내용과 관계없이 샘플 보고서를 표시합니다.')
     setStatus('TRANSMITTING')
     audioChunksRef.current = []
     setLiveTranscript('수음 중... [무전 음성 수신 중]')
@@ -87,14 +93,17 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: U
       mediaRecorder.start(100)
       updateAudioVisuals()
     } catch (err) {
-      console.warn('마이크 접근 제한 또는 권한 필요. 시뮬레이션 모드로 작동합니다.', err)
-      setNotice('마이크를 사용할 수 없습니다. 권한과 장치를 확인하세요. 표시되는 결과는 샘플입니다.')
+      console.warn('마이크 수음 실패', err)
+      setNotice('마이크를 사용할 수 없습니다. 권한과 장치를 확인하고 재녹음하세요.')
+      isPressedRef.current = false
+      setStatus('STANDBY')
+      setAudioLevel(0)
       setLiveTranscript('마이크 수음 실패')
       streamRef.current?.getTracks().forEach((track) => track.stop())
       mediaRecorderRef.current = null
       audioContextRef.current?.close().catch(() => {})
     }
-  }, [updateAudioVisuals, apiEndpoint])
+  }, [updateAudioVisuals, apiEndpoint, mode])
 
   // PTT 비활성화 (버튼 뗌) -> AI 파이프라인 처리
   const stopPTT = useCallback(async () => {
@@ -111,10 +120,22 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: U
     const recorder = mediaRecorderRef.current
     if (recorder && recorder.state !== 'inactive') {
       // stop 이벤트는 마지막 dataavailable 이벤트 이후 발생한다.
-      await new Promise<void>((resolve) => {
-        recorder.addEventListener('stop', () => resolve(), { once: true })
-        recorder.stop()
-      })
+      try {
+        await new Promise<void>((resolve, reject) => {
+          recorder.addEventListener('stop', () => resolve(), { once: true })
+          recorder.addEventListener('error', () => reject(new Error('녹음 종료 실패')), { once: true })
+          recorder.stop()
+        })
+      } catch {
+        streamRef.current?.getTracks().forEach((track) => track.stop())
+        audioContextRef.current?.close().catch(() => {})
+        mediaRecorderRef.current = null
+        setNotice('녹음을 완료하지 못했습니다. 다시 녹음하세요.')
+        setLiveTranscript('')
+        setStatus('STANDBY')
+        isProcessingRef.current = false
+        return
+      }
     }
     const audioChunks = audioChunksRef.current.slice()
     mediaRecorderRef.current = null
@@ -134,26 +155,43 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: U
     // 실제 백엔드가 연결되어 있을 경우 시도
     let processedReport: TacticalReport = targetScenario
 
-    if (apiEndpoint && audioChunks.length > 0) {
+    if (mode === 'api' && apiEndpoint && audioChunks.length > 0) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 30000)
       try {
-        const audioBlob = new Blob(audioChunks, { type: recorder?.mimeType || 'audio/webm' })
+        const mimeType = recorder?.mimeType || audioChunks[0]?.type
+        const format = mimeType?.split(';')[0].trim().toLowerCase()
+        const extension = format === 'audio/webm' ? 'webm' : format === 'audio/mp4' ? 'mp4' : format === 'audio/ogg' ? 'ogg' : undefined
+        if (!mimeType || !extension) throw new Error('지원하지 않는 녹음 형식입니다.')
+        const audioBlob = new Blob(audioChunks, { type: mimeType })
         const formData = new FormData()
-        formData.append('audio', audioBlob, 'tactical_voice.webm')
+        formData.append('audio', audioBlob, `tactical_voice.${extension}`)
 
         const res = await fetch(apiEndpoint, {
           method: 'POST',
           body: formData,
+          signal: controller.signal,
         })
         if (!res.ok) throw new Error(`AI 서버 응답 오류: ${res.status}`)
-        processedReport = { ...await res.json(), source: 'api' }
+        processedReport = parseApiReport(await res.json())
         setNotice('API 응답 수신: 실제 모델 처리 여부는 서버에서 확인해야 합니다.')
-      } catch {
-        setNotice('AI 서버 처리에 실패했습니다. 녹음 내용과 무관한 샘플 보고서를 표시합니다.')
+      } catch (error) {
+        setNotice(controller.signal.aborted ? 'AI 서버 응답 시간이 초과됐습니다. 다시 녹음하세요.' : error instanceof Error && error.name !== 'TypeError' ? `${error.message} 다시 녹음하세요.` : 'AI 서버에 연결할 수 없습니다. 서버 주소와 실행 상태를 확인하고 다시 녹음하세요.')
+        setLiveTranscript('')
+        setStatus('STANDBY')
+        isProcessingRef.current = false
+        return
+      } finally {
+        clearTimeout(timeout)
       }
     }
 
-    if (apiEndpoint && audioChunks.length === 0) {
-      setNotice('전송할 녹음이 없습니다. 녹음 내용과 무관한 샘플 보고서를 표시합니다.')
+    if (mode === 'api' && audioChunks.length === 0) {
+      setNotice('전송할 녹음이 없습니다. 다시 녹음하세요. 샘플은 생성하지 않습니다.')
+      setLiveTranscript('')
+      setStatus('STANDBY')
+      isProcessingRef.current = false
+      return
     }
 
     // 처리 지연 시뮬레이션 (약 1.2초 후 STT 및 구조화 완료)
@@ -168,38 +206,29 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: U
         onReportGenerated(processedReport)
       }
     }, 1200)
-  }, [mockIndex, apiEndpoint, onReportGenerated, onTranscriptUpdate])
+  }, [mockIndex, apiEndpoint, mode, onReportGenerated, onTranscriptUpdate])
 
-  // 하드웨어 PTT (Space Bar 또는 BleKeyboard) 키 이벤트 리스너
+  const togglePTT = useCallback(() => {
+    if (isPressedRef.current) return stopPTT()
+    return startPTT()
+  }, [startPTT, stopPTT])
+
+  // Roll 모션 한 번은 Space 누름/해제 한 쌍으로 전달한다.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 텍스트 입력창이 아닐 때 Space 누름
-      if (e.code === 'Space' && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
-        e.preventDefault()
-        if (!e.repeat) {
-          startPTT()
-        }
-      }
+      const target = e.target as HTMLElement
+      if (e.code !== 'Space' || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return
+      e.preventDefault()
+      if (!e.repeat) void togglePTT()
     }
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
-        e.preventDefault()
-        stopPTT()
-      }
-    }
-
     window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', handleKeyUp)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keyup', handleKeyUp)
-    }
-  }, [startPTT, stopPTT])
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [togglePTT])
 
   const resetToStandby = useCallback(() => {
     setStatus('STANDBY')
+    setNotice('')
+    setLiveTranscript('')
   }, [])
 
   return {
@@ -209,6 +238,7 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: U
     notice,
     startPTT,
     stopPTT,
+    togglePTT,
     resetToStandby,
     isPressed: isPressedRef.current,
   }

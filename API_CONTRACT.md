@@ -10,7 +10,7 @@
 - 같은 노트북에서 개발할 때 서버 주소: `http://localhost:8000`
 - 요청: `multipart/form-data`, 파일 필드 이름은 `audio`
 - UI는 `FormData`를 사용하며 Content-Type 헤더를 직접 지정하지 않는다.
-- PTT를 누르면 녹음 시작, 떼면 종료. 마지막 `dataavailable` 이벤트를 받고 `stop` 이벤트가 발생한 뒤 완성된 파일을 전송한다.
+- Space 또는 녹음 버튼을 한 번 누르면 녹음 시작, 다시 누르면 종료. Roll 모션은 Space 누름/해제 한 쌍을 보낸다. 마지막 `dataavailable` 이벤트를 받고 `stop` 이벤트가 발생한 뒤 완성된 파일을 전송한다.
 - UI는 브라우저에서 지원하는 녹음 형식을 선택하고 실제 `MediaRecorder.mimeType`과 일치하는 MIME·확장자를 보낸다. 우선 연동 대상은 WebM/Opus(`audio/webm`, `.webm`), 모바일에서 MP4/AAC(`audio/mp4`, `.mp4`)가 필요하면 AI 담당과 지원을 확인한다. 지원되지 않는 형식은 전송 전에 오류로 표시한다.
 - 브라우저 오디오의 샘플레이트를 고정값으로 가정하지 않는다. AI 서버가 컨테이너를 디코딩하고 STT 모델에 필요한 PCM·채널 수·샘플레이트로 변환한다.
 - 서버는 빈 파일, 손상된 오디오, 미지원 형식을 검증한다.
