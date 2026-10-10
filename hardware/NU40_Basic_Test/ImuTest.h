@@ -6,6 +6,7 @@ uint8_t imuCount = 0;
 bool imuStreaming = false;
 uint32_t lastImuSample = 0;
 uint32_t lastImuOutput = 0;
+uint16_t imuOutputInterval = 100;
 
 bool imuRead(uint8_t address, uint8_t reg, uint8_t* data, uint8_t length) {
   Wire.beginTransmission(address); Wire.write(reg);
@@ -57,7 +58,7 @@ int16_t imuWord(const uint8_t* data, bool bigEndian) {
 void updateImus(uint32_t now) {
   if (now-lastImuSample<20) return;
   lastImuSample=now;
-  const bool printSample = imuStreaming && Serial && now-lastImuOutput>=100;
+  const bool printSample = imuStreaming && Serial && now-lastImuOutput>=imuOutputInterval;
   if (printSample) lastImuOutput=now;
   for (uint8_t i=0;i<imuCount;++i) {
     const ImuDevice& imu=imus[i];
@@ -73,7 +74,7 @@ void updateImus(uint32_t now) {
       accel[axis]=imuWord(data+(imu.mpu?0:6)+axis*2,imu.mpu)*(imu.mpu?1.0f/16384:0.000061f);
       gyro[axis]=imuWord(data+(imu.mpu?8:0)+axis*2,imu.mpu)*(imu.mpu?1.0f/131:0.00875f);
     }
-    if (i==0) detectRecordingShake(accel,now);
+    if (i==0) detectRecordingMotion(accel,gyro,now);
     if (!printSample) continue;
     snprintf(line,sizeof(line),"t=%lu addr=0x%02X A[g] x=%+.3f y=%+.3f z=%+.3f G[dps] x=%+.2f y=%+.2f z=%+.2f\n",
         (unsigned long)now,imu.address,accel[0],accel[1],accel[2],gyro[0],gyro[1],gyro[2]);
