@@ -2,6 +2,8 @@
 #include <Adafruit_TinyUSB.h>
 #include <Wire.h>
 #include <Haptic_Driver.h>
+#include <bluefruit.h>
+BLEUart bleuart;
 
 const uint8_t LED_PINS[] = { PIN_LED1, PIN_LED2, PIN_LED3, PIN_LED4 };
 const size_t LED_COUNT = sizeof(LED_PINS) / sizeof(LED_PINS[0]);
@@ -84,8 +86,16 @@ void updateHaptic(uint32_t now) {
 }
 
 void handleCommands() {
-  if (!Serial.available()) return;
-  const char command = Serial.read();
+  if (!Serial.available() && !bleuart.available()) return;
+  const bool fromBle = bleuart.available();
+  const char command = fromBle ? bleuart.read() : Serial.read();
+  if (fromBle) {
+    if (command == 'p') bleuart.print("PONG\n");
+    else if (command == 's') bleuart.print(hapticReady ? "STATUS HAPTIC_READY\n" : "STATUS HAPTIC_OFFLINE\n");
+    else if (command == 'v' || command == 'r' || command == 'x') {
+      bleuart.print("ACK "); bleuart.write(command); bleuart.print("\n");
+    }
+  }
   if (command == 'v') manualPulse = true;
   if (command == 'r') repeatHaptic = true;
   if (command == 'x') {
@@ -99,11 +109,26 @@ void handleCommands() {
     Serial.print(" state="); Serial.print(hapticState);
     Serial.print(" LED max gap ms="); Serial.println(maxLedGap);
     maxLedGap = 0;
+    Serial.print("BLE adv="); Serial.print(Bluefruit.Advertising.isRunning());
+    Serial.print(" connected="); Serial.println(Bluefruit.connected());
+    char name[32] = {}; Bluefruit.getName(name, sizeof(name)); Serial.println(name);
   }
 }
 
 void setup() {
   Serial.begin(115200); // Keep automatic 1200-bps USB bootloader entry.
+  Bluefruit.begin();
+  Bluefruit.autoConnLed(false);
+  Bluefruit.setName("NU40-BLE-Test");
+  Bluefruit.setTxPower(4);
+  bleuart.begin();
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addService(bleuart);
+  Bluefruit.ScanResponse.addName();
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(32, 32); // Keep test discovery responsive.
+  Bluefruit.Advertising.setFastTimeout(30);
+  Bluefruit.Advertising.start(0);
   Wire.begin();
   Wire.setClock(100000);
   analogWriteResolution(8);
