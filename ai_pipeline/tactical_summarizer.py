@@ -14,12 +14,14 @@ STT로 인식된 무전 텍스트를 군 표준 보고 양식(SALUTE / SITREP / 
 - recommended_action 은 검색된 SOP 근거만 사용, 없으면 빈 문자열
 - id, timestamp, confirmed 는 LLM이 아니라 서버가 생성
 """
+import glob
+import json
 import logging
 import os
 import threading
 import uuid
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import tactical_rules as rules
 
@@ -92,11 +94,8 @@ class TacticalSummarizer:
             "confirmed": False,
         }
 
-    def save_script(self, report: Dict[str, Any]) -> str:
-        """보고서를 무전 낭독용 스크립트(.txt)로 저장하고 경로 반환"""
-        stamp = datetime.fromisoformat(report["timestamp"])
-        kind = report["report_type"].replace(" ", "_")
-        path = os.path.join(self.script_dir, f"tactical_{stamp:%Y%m%d_%H%M%S}_{kind}_{report['id'][:8]}.txt")
+    def render_script(self, report: Dict[str, Any]) -> str:
+        """보고서 → 무전 낭독용 스크립트 텍스트"""
         lines = [
             "# 전술 상황 보고 스크립트",
             f"# 보고 ID: {report['id']}",
@@ -121,11 +120,30 @@ class TacticalSummarizer:
             "[교범 조치사항]",
             report["recommended_action"] or "관련 교범 근거 없음",
         ]
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
-        return path
+        return "\n".join(lines) + "\n"
+
+    def save_outputs(self, report: Dict[str, Any], script_text: str) -> Dict[str, str]:
+        """보고서 JSON(.json)과 스크립트(.txt)를 같은 이름으로 저장하고 경로 반환"""
+        stamp = datetime.fromisoformat(report["timestamp"])
+        kind = report["report_type"].replace(" ", "_")
+        base = os.path.join(self.script_dir, f"tactical_{stamp:%Y%m%d_%H%M%S}_{kind}_{report['id']}")
+        with open(base + ".txt", "w", encoding="utf-8") as f:
+            f.write(script_text)
+        with open(base + ".json", "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        return {"script_path": base + ".txt", "json_path": base + ".json"}
+
+    def find_output(self, report_id: str, extension: str) -> Optional[str]:
+        """보고 ID(UUID)로 저장된 .json / .txt 경로 찾기 (UUID 형식이 아니면 None)"""
+        try:
+            report_id = str(uuid.UUID(report_id))
+        except ValueError:
+            return None
+        matches = glob.glob(os.path.join(self.script_dir, f"tactical_*_{report_id}.{extension}"))
+        return matches[0] if matches else None
 
     def summarize_and_save(self, transcript: str, sop: str = "") -> Dict[str, Any]:
         report = self.build_report(transcript, sop)
-        script_path = self.save_script(report)
-        return {"report": report, "script_path": script_path}
+        script_text = self.render_script(report)
+        paths = self.save_outputs(report, script_text)
+        return {"report": report, "script_text": script_text, **paths}
