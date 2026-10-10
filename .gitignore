@@ -1,0 +1,29 @@
+# Local files and credentials
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies, builds and caches
+node_modules/
+dist/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.log
+
+# Local data and downloaded models
+all_showcases.json
+*.db
+*.sqlite
+*.sqlite3
+*.wav
+*.mp3
+*.webm
+*.mp4
+*.gguf
+*.safetensors
+*.onnx
