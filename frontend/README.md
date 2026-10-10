@@ -2,7 +2,7 @@
 
 화면에서 실행 모드를 **실제 API**로 선택하면 PTT 녹음을 `http://localhost:8000/api/tactical-process`로 전송합니다. 요청은 `multipart/form-data`이며 파일 필드는 `audio`입니다. 기본 실행 모드는 데모입니다.
 
-주소 변경은 `.env.example`을 `.env.local`로 복사하고 `VITE_TACTICAL_API_ENDPOINT`를 수정한 뒤 개발 서버를 재시작합니다. 배포용 주소 변경은 재빌드가 필요합니다.
+주소 변경은 `.env.example`을 `.env.local`로 복사하고 `VITE_TACTICAL_API_ENDPOINT`를 수정한 뒤 개발 서버를 재시작합니다. 통합 실행 스크립트 `hardware/run_ui.sh --api <보드IP>`(BLE 없이 개발 시 `--dev`)가 이 파일을 자동으로 작성합니다. 배포용 주소 변경은 재빌드가 필요합니다.
 
 스마트폰의 `localhost`는 스마트폰 자신입니다. 노트북 서버를 이용하려면 해당 서버 주소와 마이크 사용 가능한 보안 컨텍스트를 준비해야 합니다. 현재 백엔드는 실제 모델 대신 고정 샘플을 반환합니다.
 
