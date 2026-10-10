@@ -51,12 +51,19 @@ CASUALTY_KEYWORDS = ("부상자", "부상", "환자")
 SITREP_KEYWORDS = ("SITREP", "상황보고", "상황 보고", "탄약", "보급", "식수", "고지 확보", "점령", "아군 위치",
                    "작전 가능", "작전 불가", "전투 가능", "진지 구축")
 HIGH_THREAT_KEYWORDS = ("RPG", "전차", "기갑", "대전차", "박격포", "포격", "교전", "사격", "매복", "드론")
-# "부상자 없음" 등 부정 표현은 MEDEVAC 판별에서 제외
-NEGATED_PATTERN = re.compile(r"(부상자|부상|환자|사상자)\s*(없음|없다|없습니다|0\s*명)")
+# "부상자 없음", "후송 요청은 아님" 등 부정 표현은 MEDEVAC 판별에서 제외
+NEGATED_PATTERN = re.compile(r"(부상자|부상|환자|사상자)\s*(없음|없다|없습니다|0\s*명)"
+                             r"|(메디백|MEDEVAC|의무후송|후송)\s*(요청)?\s*(은|는)?\s*(아님|아니다|아닙니다|없음|불필요)", re.I)
+# 발화 첫머리에 명시한 보고 종류 ("SITREP 보고.", "9-Line MEDEVAC 훈련 보고.")
+EXPLICIT_TYPE_RE = re.compile(r"^\W*(?:9\s*-?\s*LINE\s*)?(SALUTE|SITREP|MEDEVAC|메디백|상황\s*보고)", re.I)
 
 
 def classify_report_type(transcript: str) -> str:
-    """발화 키워드로 보고 종류 판별 (생명과 직결되는 MEDEVAC 우선)"""
+    """명시된 보고 종류 우선, 그 외 발화 키워드로 판별 (생명과 직결되는 MEDEVAC 우선)"""
+    explicit = EXPLICIT_TYPE_RE.match(transcript)
+    if explicit:
+        word = explicit.group(1).upper().replace(" ", "")
+        return {"SALUTE": "SALUTE", "SITREP": "SITREP", "상황보고": "SITREP"}.get(word, "9-Line MEDEVAC")
     text = NEGATED_PATTERN.sub("", transcript).upper()
     if any(k.upper() in text for k in MEDEVAC_KEYWORDS):
         return "9-Line MEDEVAC"
