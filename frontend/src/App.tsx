@@ -56,6 +56,8 @@ export const App: React.FC = () => {
     resetToStandby,
   } = usePTT({
     onReportGenerated: handleReportGenerated,
+    // UNO Q AI 서버 주소 (frontend/.env.local 의 VITE_API_URL). 없으면 데모 샘플 모드
+    apiEndpoint: import.meta.env.VITE_API_URL || undefined,
   })
 
   // 상급망 전파 승인 처리

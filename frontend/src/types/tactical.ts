@@ -49,4 +49,8 @@ export interface TacticalReport {
   read_back_text: string
   recommended_action: string
   confirmed: boolean
+  // UNO Q 서버 응답에만 있는 값: 저장된 보고 스크립트 본문과 다운로드 경로
+  script_text?: string
+  json_url?: string
+  script_url?: string
 }

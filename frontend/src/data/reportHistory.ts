@@ -3,10 +3,14 @@ import type { TacticalReport } from '../types/tactical'
 export const REPORT_HISTORY_KEY = 'tactical-report-history-v1'
 
 export function createReport(report: TacticalReport): TacticalReport {
+  // 서버 응답은 서버가 부여한 id·timestamp를 유지 (보드에 저장된 JSON/스크립트 파일과 같은 ID)
+  const fromServer = report.source === 'api' && Boolean(report.id) && Boolean(report.timestamp)
   return {
     ...report,
-    id: crypto.randomUUID(),
-    timestamp: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false }) + ' KST',
+    id: fromServer ? report.id : crypto.randomUUID(),
+    timestamp: fromServer
+      ? report.timestamp
+      : new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false }) + ' KST',
     confirmed: false,
   }
 }

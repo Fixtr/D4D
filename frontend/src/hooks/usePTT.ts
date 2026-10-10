@@ -136,19 +136,27 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint }: U
 
     if (apiEndpoint && audioChunks.length > 0) {
       try {
-        const audioBlob = new Blob(audioChunks, { type: recorder?.mimeType || 'audio/webm' })
+        // 실제 녹음 MIME에 맞는 확장자 (Chrome: audio/webm, Safari: audio/mp4)
+        const mimeType = recorder?.mimeType || 'audio/webm'
+        const extension = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
+        const audioBlob = new Blob(audioChunks, { type: mimeType })
         const formData = new FormData()
-        formData.append('audio', audioBlob, 'tactical_voice.webm')
+        formData.append('audio', audioBlob, `tactical_voice.${extension}`)
 
         const res = await fetch(apiEndpoint, {
           method: 'POST',
           body: formData,
         })
-        if (!res.ok) throw new Error(`AI 서버 응답 오류: ${res.status}`)
+        if (!res.ok) {
+          // 서버의 {"detail": "..."} 오류 설명을 그대로 표시 (API_CONTRACT.md 3)
+          const detail = await res.json().then((body) => body?.detail).catch(() => undefined)
+          throw new Error(typeof detail === 'string' ? detail : `AI 서버 응답 오류: ${res.status}`)
+        }
         processedReport = { ...await res.json(), source: 'api' }
         setNotice('API 응답 수신: 실제 모델 처리 여부는 서버에서 확인해야 합니다.')
-      } catch {
-        setNotice('AI 서버 처리에 실패했습니다. 녹음 내용과 무관한 샘플 보고서를 표시합니다.')
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : 'AI 서버 처리 실패'
+        setNotice(`${reason} 녹음 내용과 무관한 샘플 보고서를 표시합니다.`)
       }
     }
 
