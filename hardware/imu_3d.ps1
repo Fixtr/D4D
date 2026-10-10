@@ -62,7 +62,12 @@ $timer.Add_Tick({
   $state.buffer+=$serial.ReadExisting()
   while($state.buffer.Contains("`n")) {
    $end=$state.buffer.IndexOf("`n");$line=$state.buffer.Substring(0,$end).Trim();$state.buffer=$state.buffer.Substring($end+1)
-   if($line -match '^(MOTION|RECORD|HAPTIC|ERROR)') { Add-Content -LiteralPath $eventLog -Value ((Get-Date -Format 'HH:mm:ss.fff')+' '+$line) }
+   if($line -match '^(MOTION|RECORD|HAPTIC|ERROR|IMU CALIBRATED)') { Add-Content -LiteralPath $eventLog -Value ((Get-Date -Format 'HH:mm:ss.fff')+' '+$line) }
+   if($line -match '^IMU CALIBRATED bias=([+\-\d.]+),([+\-\d.]+),([+\-\d.]+)$') {
+    $state.bias=@(1..3 | ForEach-Object {[double]::Parse($Matches[$_],[Globalization.CultureInfo]::InvariantCulture)})
+    $state.calibrating=$false
+    $record.Text='IMU auto-calibrated / 10 seconds still / repeats while stationary'
+   }
    if($line -match '^MOTION DETECTED ([seyn])') {
     $signal=$Matches[1]
     $colors=@{s='#9A7600';e='#9A7600';y='#164DAB';n='#A32232'}

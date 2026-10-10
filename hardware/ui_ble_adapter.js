@@ -11,7 +11,7 @@
   panel.append(label, askButton);
   document.body.append(panel);
   let socket, connected = false, armed = false, timer;
-  let previous = '', lastSync = null;
+  let previous = '', lastSync = null, retryTimer, connectTimer, attempting = false;
   const root = document.getElementById('root');
   function recordingButton() { return root.querySelector('button[aria-label="녹음 종료"]'); }
   function startButton() { return root.querySelector('button[aria-label="녹음 시작"]'); }
@@ -42,7 +42,26 @@
     const badge = [...root.querySelectorAll('header span')].find(node => node.textContent.startsWith('NUCODE BLE:'));
     const text = connected ? 'NUCODE BLE: 연결됨' : 'NUCODE BLE: 연결 대기';
     if (badge && badge.textContent !== text) badge.textContent = text;
+    const button = root.querySelector('[data-nu40-connect]');
+    if (button) {
+      if (button.hidden !== connected) button.hidden = connected;
+      if (button.disabled !== attempting) button.disabled = attempting;
+      const buttonText = attempting ? '연결 시도 중…' : '연결 시도';
+      if (button.textContent !== buttonText) button.textContent = buttonText;
+    }
   }
+  function requestConnection() {
+    if (connected || attempting) return;
+    attempting = true;
+    label.textContent = 'NU40 연결 시도 중';
+    updateBadge();
+    clearTimeout(retryTimer);
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type: 'connect'}));
+    else if (socket?.readyState !== WebSocket.CONNECTING) connect();
+    clearTimeout(connectTimer);
+    connectTimer = setTimeout(() => { attempting = false; updateBadge(); }, 20000);
+  }
+  window.addEventListener('nu40-connect', requestConnection);
   function observe() {
     updateBadge();
     const current = state();
@@ -57,14 +76,19 @@
   new MutationObserver(observe).observe(root, {subtree: true, childList: true, attributes: true});
   function connect() {
     socket = new WebSocket(`ws://${location.host}/hardware/ws`);
+    socket.onopen = () => {
+      if (attempting) socket.send(JSON.stringify({type: 'connect'}));
+    };
     socket.onmessage = event => {
       const message = JSON.parse(event.data);
       if (message.type === 'status') {
         connected = message.connected;
+        if (connected) { attempting = false; clearTimeout(connectTimer); }
         disarm(); lastSync = null;
         label.textContent = connected ? 'NU40 연결됨 · 비틀기로 녹음 시작/종료' : 'NU40 검색 중';
         observe();
       } else if (message.type === 'error') {
+        attempting = false; clearTimeout(connectTimer); updateBadge();
         label.textContent = message.message;
       } else if (message.type === 'question' && message.sent) {
         armed = true;
@@ -83,7 +107,7 @@
         panel.style.borderColor = {s:'#eab308',e:'#eab308',y:'#3b82f6',n:'#ef4444'}[signal];
       }
     };
-    socket.onclose = () => { connected = false; disarm(); lastSync = null; label.textContent = '연결 재시도 중'; updateBadge(); setTimeout(connect, 2000); };
+    socket.onclose = () => { connected = false; attempting = false; clearTimeout(connectTimer); disarm(); lastSync = null; label.textContent = '연결 재시도 중'; updateBadge(); retryTimer = setTimeout(connect, 2000); };
   }
   observe(); connect();
 })();

@@ -1,5 +1,12 @@
 #pragma once
-const uint8_t TWIST_AXIS=0, YES_AXIS=1, NO_AXIS=2; // X wrist->fingers, Y across hand, Z out of hand back.
+const uint8_t TWIST_AXIS=0, YES_AXIS=1, NO_AXIS=2;
+// Glove twist axis fitted from five labelled repetitions. Other axes are
+// orthogonal provisional axes until glove nod/sideways captures are available.
+const float GLOVE_MOTION_AXES[3][3]={
+ { .715351f,-.691319f,-.101735f },
+ { .694925f, .719082f, .000000f },
+ { .073156f,-.070698f, .994812f }
+};
 enum class RecordingState { IDLE, RECORDING, WAITING_QUESTION, WAITING_ANSWER };
 RecordingState recordingState=RecordingState::IDLE;
 uint32_t questionStarted=0, shakeBlockedUntil=0;
@@ -12,6 +19,64 @@ struct GestureTracker {
  uint32_t started=0,last=0,quiet=0;
 } gesture;
 float motionFiltered[3]={},motionBias[3]={};
+const uint32_t MOTION_CALIBRATION_STILL_MS=10000;
+const uint16_t MOTION_CALIBRATION_SAMPLES=500; // 10 seconds at the 20 ms IMU cadence.
+uint32_t calibrationStarted=0,calibrationLastSample=0;
+uint16_t calibrationSamples=0;
+float calibrationSum[3]={},calibrationGyroMin[3]={},calibrationGyroMax[3]={};
+float calibrationAccelMin[3]={},calibrationAccelMax[3]={};
+float calibrationAccelFiltered[3]={},calibrationGyroFiltered[3]={};
+bool calibrationFilterReady=false;
+
+void resetMotionCalibrationWindow(){calibrationSamples=0;calibrationLastSample=0;calibrationFilterReady=false;}
+// Re-zero gyro drift only from a continuous, stable, gravity-only sample window.
+// Keep thresholds, board axes and recording/question state unchanged.
+bool updateMotionCalibration(const float* acceleration,const float* gyro,uint32_t now){
+ if(gesture.active){resetMotionCalibrationWindow();return false;}
+ if(calibrationSamples && (uint32_t)(now-calibrationLastSample)>60)resetMotionCalibrationWindow();
+ float gravity=0;
+ for(uint8_t i=0;i<3;++i){
+  if(!isfinite(acceleration[i])||!isfinite(gyro[i])||fabsf(gyro[i]-motionBias[i])>30){resetMotionCalibrationWindow();return false;}
+ }
+ for(uint8_t i=0;i<3;++i){
+  if(!calibrationFilterReady){calibrationAccelFiltered[i]=acceleration[i];calibrationGyroFiltered[i]=gyro[i];}
+  else{
+   calibrationAccelFiltered[i]+=.15f*(acceleration[i]-calibrationAccelFiltered[i]);
+   calibrationGyroFiltered[i]+=.15f*(gyro[i]-calibrationGyroFiltered[i]);
+  }
+ }
+ calibrationFilterReady=true;
+ for(uint8_t i=0;i<3;++i){
+  if(fabsf(calibrationGyroFiltered[i])>14 || fabsf(calibrationGyroFiltered[i]-motionBias[i])>10){resetMotionCalibrationWindow();return false;}
+  gravity+=calibrationAccelFiltered[i]*calibrationAccelFiltered[i];
+ }
+ if(gravity<.81f||gravity>1.21f){resetMotionCalibrationWindow();return false;}
+ if(calibrationSamples){
+  for(uint8_t i=0;i<3;++i){
+   const float gyroLow=fminf(calibrationGyroMin[i],calibrationGyroFiltered[i]),gyroHigh=fmaxf(calibrationGyroMax[i],calibrationGyroFiltered[i]);
+   const float accelLow=fminf(calibrationAccelMin[i],calibrationAccelFiltered[i]),accelHigh=fmaxf(calibrationAccelMax[i],calibrationAccelFiltered[i]);
+   if(gyroHigh-gyroLow>8.0f||accelHigh-accelLow>.05f){resetMotionCalibrationWindow();return false;}
+  }
+ }
+ for(uint8_t i=0;i<3;++i){
+  if(!calibrationSamples){
+   calibrationStarted=now;
+   calibrationSum[i]=0;
+   calibrationGyroMin[i]=calibrationGyroMax[i]=calibrationGyroFiltered[i];
+   calibrationAccelMin[i]=calibrationAccelMax[i]=calibrationAccelFiltered[i];
+  }
+  calibrationSum[i]+=gyro[i];
+  calibrationGyroMin[i]=fminf(calibrationGyroMin[i],calibrationGyroFiltered[i]);calibrationGyroMax[i]=fmaxf(calibrationGyroMax[i],calibrationGyroFiltered[i]);
+  calibrationAccelMin[i]=fminf(calibrationAccelMin[i],calibrationAccelFiltered[i]);calibrationAccelMax[i]=fmaxf(calibrationAccelMax[i],calibrationAccelFiltered[i]);
+ }
+ calibrationLastSample=now;
+ ++calibrationSamples;
+ if(calibrationSamples<MOTION_CALIBRATION_SAMPLES || (uint32_t)(now-calibrationStarted)<MOTION_CALIBRATION_STILL_MS)return false;
+ for(uint8_t i=0;i<3;++i)motionBias[i]=calibrationSum[i]/calibrationSamples;
+ resetMotionCalibrationWindow();
+ if(Serial){Serial.print("IMU CALIBRATED bias=");for(uint8_t i=0;i<3;++i){Serial.print(motionBias[i],3);Serial.print(i==2?'\n':',');}}
+ return true;
+}
 
 void resetShake(){gesture=GestureTracker{};for(uint8_t i=0;i<3;++i)motionFiltered[i]=0;}
 const char* recordingStateName(){switch(recordingState){case RecordingState::RECORDING:return "RECORDING";case RecordingState::WAITING_QUESTION:return "WAITING_QUESTION";case RecordingState::WAITING_ANSWER:return "WAITING_ANSWER";default:return "IDLE";}}
@@ -51,11 +116,13 @@ void updateRecording(uint32_t now){
 }
 // Classify the whole motion window. Small reversals do not cancel a stroke.
 void detectRecordingMotion(const float* acceleration,const float* gyro,uint32_t now){
- if(hapticState||manualPulse||(int32_t)(now-shakeBlockedUntil)<0||now-lastHapticStart<1000){resetShake();return;}
+ if(hapticState||manualPulse||(int32_t)(now-shakeBlockedUntil)<0||now-lastHapticStart<1000){resetMotionCalibrationWindow();resetShake();return;}
+ if(updateMotionCalibration(acceleration,gyro,now)){resetShake();return;}
  float peak=0;
  for(uint8_t i=0;i<3;++i){
-  if(!gesture.active && fabsf(gyro[i])<15)motionBias[i]+=.02f*(gyro[i]-motionBias[i]);
-  motionFiltered[i]+=.35f*(gyro[i]-motionBias[i]-motionFiltered[i]);
+  float rate=0;
+  for(uint8_t j=0;j<3;++j)rate+=GLOVE_MOTION_AXES[i][j]*(gyro[j]-motionBias[j]);
+  motionFiltered[i]+=.35f*(rate-motionFiltered[i]);
   if(fabsf(motionFiltered[i])>peak)peak=fabsf(motionFiltered[i]);
  }
  const uint32_t dt=gesture.last?now-gesture.last:20;gesture.last=now;
@@ -70,8 +137,9 @@ void detectRecordingMotion(const float* acceleration,const float* gyro,uint32_t 
   if(sign==gesture.direction[i]){gesture.angle[i]+=step;gesture.reverse[i]=0;}
   else{
    gesture.reverse[i]+=step;
-   if(gesture.reverse[i]>=8){
-    if(gesture.angle[i]>=8)++gesture.strokes[i];
+   const float minimumAngle=i==TWIST_AXIS?5.0f:8.0f;
+   if(gesture.reverse[i]>=minimumAngle){
+    if(gesture.angle[i]>=minimumAngle)++gesture.strokes[i];
     gesture.direction[i]=sign;gesture.angle[i]=gesture.reverse[i];gesture.reverse[i]=0;
    }
   }
@@ -80,11 +148,13 @@ void detectRecordingMotion(const float* acceleration,const float* gyro,uint32_t 
  const bool quiet=gesture.quiet&&now-gesture.quiet>=180;
  if(!quiet && now-gesture.started<5000)return;
  uint8_t axis=0;for(uint8_t i=1;i<3;++i)if(gesture.energy[i]>gesture.energy[axis])axis=i;
- const uint8_t strokes=gesture.strokes[axis]+(gesture.angle[axis]>=8?1:0);
+ const float minimumAngle=axis==TWIST_AXIS?5.0f:8.0f;
+ const uint8_t strokes=gesture.strokes[axis]+(gesture.angle[axis]>=minimumAngle?1:0);
  float other=0;for(uint8_t i=0;i<3;++i)if(i!=axis)other+=gesture.energy[i];
  const float dominance=gesture.energy[axis]/(other>1?other:1);
-  const bool countMatches=strokes>=2 && strokes<=(axis==TWIST_AXIS?3:8) && gesture.energy[axis]>=16;
- const bool accepted=quiet&&dominance>=1.15f&&countMatches;
+ const bool countMatches=strokes>=2 && strokes<=(axis==TWIST_AXIS?3:8) && gesture.energy[axis]>=(axis==TWIST_AXIS?12.0f:16.0f);
+ const float minimumDominance=axis==NO_AXIS?.75f:1.15f;
+ const bool accepted=quiet&&dominance>=minimumDominance&&countMatches;
  if(Serial){Serial.print("MOTION WINDOW axis=");Serial.print(axis);Serial.print(" strokes=");Serial.print(strokes);Serial.print(" dominance=");Serial.print(dominance);Serial.print(" accepted=");Serial.println(accepted);}
  resetShake();
  if(!accepted)return;
