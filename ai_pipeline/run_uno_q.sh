@@ -11,6 +11,7 @@
 #   VENV=~/.venv                 Python 3.12 가상환경 (setup_uno_q.sh 로 생성)
 #   PORT=8000
 #   STT_MODEL=openai/whisper-base
+#   COMMAND_MODE=llm             Qwen2.5-0.5B 로 한 줄 명령 요약 생성 (건당 +5~10초), rule 이면 모델 미로드
 #   READBACK_MODE=rule           llm 이면 Qwen2.5-0.5B 로 복창 생성 (건당 +17~37초)
 #   OFFLINE=1                    1 이면 모델 허브에 접속하지 않고 로컬 캐시만 사용 (Air-gap 시연)
 set -euo pipefail
@@ -26,6 +27,7 @@ STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-180}"
 
 export STT_MODEL="${STT_MODEL:-openai/whisper-base}"
 export READBACK_MODE="${READBACK_MODE:-rule}"
+export COMMAND_MODE="${COMMAND_MODE:-llm}"
 if [[ "${OFFLINE:-1}" == "1" ]]; then
   export HF_HUB_OFFLINE=1 CLIKA_MODELVERSE_OFFLINE=1
 fi
@@ -59,7 +61,7 @@ start() {
     echo "이미 실행 중입니다 (PID $(cat "$PID_FILE"))."; status; return
   fi
   preflight
-  echo "서버 시작: STT=$STT_MODEL, 복창=$READBACK_MODE, 오프라인=${OFFLINE:-1}, 포트=$PORT"
+  echo "서버 시작: STT=$STT_MODEL, 명령 요약=$COMMAND_MODE, 복창=$READBACK_MODE, 오프라인=${OFFLINE:-1}, 포트=$PORT"
   ( server_cmd ) >>"$LOG_FILE" 2>&1 &
   echo $! >"$PID_FILE"
 

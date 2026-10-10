@@ -353,3 +353,19 @@ def is_grounded(text: str, transcript: str) -> bool:
     spoken = re.sub(r"\s+", "", transcript)
     spoken_nums = set(re.findall(r"\d+", spoken)) | {str(v) for k, v in _NATIVE_NUMS.items() if k in spoken}
     return all(n in spoken_nums or n in spoken for n in re.findall(r"\d+", text))
+
+
+# 명령 요약에서 원문에 없어도 허용하는 보고 용어 (LLM이 문장을 줄이며 붙일 수 있는 말)
+COMMAND_ALLOWED_WORDS = {"식별", "요청", "이동", "접근", "확보", "완료", "발생", "보고", "아군", "위치", "후송", "긴급"}
+
+
+def is_command_grounded(command: str, transcript: str) -> bool:
+    """LLM 명령 요약 검증: 숫자는 모두 원문에 있고, 두 글자 이상 단어의 80% 이상이 원문(또는 허용 용어)에 근거"""
+    if not is_grounded(command, transcript):
+        return False
+    spoken = re.sub(r"\s+", "", transcript).upper()
+    words = [w for w in re.findall(r"[가-힣A-Za-z]+", command) if len(w) >= 2]
+    if not words:
+        return False
+    grounded = sum(1 for w in words if w[:2].upper() in spoken or w[:2] in COMMAND_ALLOWED_WORDS)
+    return grounded / len(words) >= 0.8
