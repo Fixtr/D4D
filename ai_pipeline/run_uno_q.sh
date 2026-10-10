@@ -91,7 +91,7 @@ status() {
     echo "상태: 실행 중 (PID $(cat "$PID_FILE"))"
     echo "  $(curl -s "$HEALTH_URL")"
     local ip; ip="$(lan_ip)"
-    echo "  UI 연결 주소: VITE_API_URL=http://${ip:-<보드IP>}:$PORT/api/tactical-process"
+    echo "  UI 연결 주소: VITE_TACTICAL_API_ENDPOINT=http://${ip:-<보드IP>}:$PORT/api/tactical-process"
   elif is_running; then
     echo "상태: 시작 중 (모델 로드 중, PID $(cat "$PID_FILE"))"
   else

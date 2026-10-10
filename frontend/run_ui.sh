@@ -5,8 +5,8 @@
 # 사용: ./run_ui.sh [보드IP 또는 API 주소]
 #   ./run_ui.sh                      → 기존 .env.local 사용, 없으면 192.168.0.139
 #   ./run_ui.sh 192.168.0.139        → http://192.168.0.139:8000/api/tactical-process
-#   ./run_ui.sh demo                 → 서버 없이 데모 샘플 모드
 # 브라우저: http://localhost:5173 (마이크는 localhost 또는 HTTPS에서만 허용됨)
+# 화면의 실행 모드를 "실제 API"로 바꿔야 녹음이 보드로 전송된다 (기본: 데모)
 set -euo pipefail
 
 UI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,31 +50,25 @@ fi
 
 # 3. AI 서버 주소 (.env.local, git 에 커밋되지 않음)
 target="${1:-}"
-if [[ "$target" == "demo" ]]; then
-  api_url=""
-elif [[ -n "$target" ]]; then
+api_url=""
+if [[ -n "$target" ]]; then
   [[ "$target" == http* ]] && api_url="$target" || api_url="http://$target:8000/api/tactical-process"
 elif [[ -f "$ENV_FILE" ]]; then
-  api_url="$(grep -E '^VITE_API_URL=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
-else
-  api_url="http://$DEFAULT_BOARD:8000/api/tactical-process"
+  api_url="$(grep -E '^VITE_TACTICAL_API_ENDPOINT=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
 fi
-echo "VITE_API_URL=$api_url" >"$ENV_FILE"
+api_url="${api_url:-http://$DEFAULT_BOARD:8000/api/tactical-process}"
+echo "VITE_TACTICAL_API_ENDPOINT=$api_url" >"$ENV_FILE"
 
-if [[ -z "$api_url" ]]; then
-  echo "[3/4] 데모 모드: AI 서버에 보내지 않고 샘플 보고서를 표시합니다"
+health_url="${api_url%/api/*}/api/health"
+if health="$(curl -sf --max-time 5 "$health_url")"; then
+  echo "[3/4] AI 서버 연결 확인: $health"
 else
-  health_url="${api_url%/api/*}/api/health"
-  if health="$(curl -sf --max-time 5 "$health_url")"; then
-    echo "[3/4] AI 서버 연결 확인: $health"
-  else
-    echo "[3/4] 경고: AI 서버에 연결할 수 없습니다 ($health_url)"
-    echo "      보드에서 ~/D4D/ai_pipeline/run_uno_q.sh 실행 여부와 같은 Wi-Fi 연결을 확인하세요."
-    echo "      UI는 실행되지만 녹음 결과 대신 샘플 보고서가 표시됩니다."
-  fi
+  echo "[3/4] 경고: AI 서버에 연결할 수 없습니다 ($health_url)"
+  echo "      보드에서 ~/D4D/ai_pipeline/run_uno_q.sh 실행 여부와 같은 Wi-Fi 연결을 확인하세요."
+  echo "      UI는 실행되지만 실제 API 모드의 녹음 전송은 실패합니다 (데모 모드는 동작)."
 fi
 
 # 4. 개발 서버
 echo "[4/4] UI 실행: 브라우저에서 http://localhost:5173 을 여세요 (종료: Ctrl+C)"
-echo "      PTT: 화면 버튼을 누르고 있거나 Space 키를 누른 채 말하고, 떼면 보드로 전송됩니다."
+echo "      실행 모드를 \"실제 API\"로 바꾼 뒤, 녹음 버튼 또는 Space 를 한 번 눌러 말하고 다시 누르면 보드로 전송됩니다."
 exec npm run dev

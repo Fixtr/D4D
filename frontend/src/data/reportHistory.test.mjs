@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createReport, parseReportHistory } from './reportHistory.ts'
+import { createReport, parseReportHistory, parseApiReport } from './reportHistory.ts'
 import { MOCK_SCENARIOS } from './mockScenarios.ts'
 
 test('동일 샘플로 생성해도 ID가 다르고 승인은 해당 보고서에만 적용된다', () => {
@@ -22,4 +22,23 @@ test('손상된 저장 데이터와 중복 ID를 거부하고 빈 이력을 허�
     assert.throws(() => parseReportHistory(value))
   }
   assert.deepEqual(parseReportHistory('[]'), [])
+})
+
+test('API 응답 검증과 서버 ID·시각 보존', () => {
+  for (const scenario of MOCK_SCENARIOS) {
+    const input = { ...scenario, id: 'server-id', timestamp: '2026-10-10T15:00:00+09:00', confirmed: false }
+    const report = createReport(parseApiReport(input))
+    assert.equal(report.id, input.id)
+    assert.equal(report.timestamp, input.timestamp)
+    assert.equal(report.source, 'api')
+    const missing = { ...input.data }
+    delete missing[Object.keys(missing)[0]]
+    for (const value of [null, [], {}, { ...input, id: '' }, { ...input, confirmed: true },
+      { ...input, timestamp: '15:00 KST' }, { ...input, report_type: 'toString' },
+      { ...input, threat_level: 'UNKNOWN' }, { ...input, raw_transcript: null },
+      { ...input, data: missing }, { ...input, data: { ...input.data, extra: 'bad' } },
+      { ...input, data: Object.fromEntries(Object.keys(input.data).map(key => [key, 3])) }]) {
+      assert.throws(() => parseApiReport(value), /AI 응답 형식 오류/)
+    }
+  }
 })

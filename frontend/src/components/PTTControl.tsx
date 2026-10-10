@@ -6,15 +6,13 @@ import type { SystemStatus } from '../types/tactical'
 interface PTTControlProps {
   status: SystemStatus
   audioLevel: number
-  onStartPTT: () => void
-  onStopPTT: () => void
+  onTogglePTT: () => void
 }
 
 export const PTTControl: React.FC<PTTControlProps> = ({
   status,
   audioLevel,
-  onStartPTT,
-  onStopPTT,
+  onTogglePTT,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -126,16 +124,9 @@ export const PTTControl: React.FC<PTTControlProps> = ({
       <div className="relative group">
         <button
           type="button"
-          onMouseDown={onStartPTT}
-          onMouseUp={onStopPTT}
-          onTouchStart={(e) => {
-            e.preventDefault()
-            onStartPTT()
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault()
-            onStopPTT()
-          }}
+          onClick={onTogglePTT}
+          disabled={status === 'PROCESSING'}
+          aria-label={status === 'TRANSMITTING' ? '녹음 종료' : '녹음 시작'}
           className={`relative z-10 w-32 h-32 rounded-full flex flex-col items-center justify-center gap-1.5 font-mono text-sm font-bold tracking-wider transition-all duration-150 select-none cursor-pointer shadow-lg active:scale-95 ${
             status === 'TRANSMITTING'
               ? 'bg-red-600 text-white shadow-red-500/50 ring-4 ring-red-400/50 scale-105'
@@ -154,7 +145,7 @@ export const PTTControl: React.FC<PTTControlProps> = ({
             />
           )}
           <span className="text-[11px] uppercase">
-            {status === 'TRANSMITTING' ? 'REC...' : 'HOLD PTT'}
+            {status === 'TRANSMITTING' ? '녹음 종료' : '녹음 시작'}
           </span>
         </button>
 
@@ -170,7 +161,9 @@ export const PTTControl: React.FC<PTTControlProps> = ({
           <kbd className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 font-mono text-xs shadow">
             Space
           </kbd>{' '}
-          키 또는 <strong className="text-amber-400 font-semibold">Space 키를 보내는 무선 버튼</strong>을 누른 채 발화하세요
+          키를 한 번 누르면 시작, 다시 누르면 종료합니다.
+          <br />
+          <strong className="text-amber-400 font-semibold">Roll: 손목을 비틀었다 복귀</strong>
         </p>
       </div>
     </div>

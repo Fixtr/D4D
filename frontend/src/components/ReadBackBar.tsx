@@ -69,7 +69,7 @@ export const ReadBackBar: React.FC<ReadBackBarProps> = ({
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 font-mono text-xs font-semibold transition"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>재보고</span>
+            <span>재녹음 · Yaw / F14</span>
           </button>
           <button
             type="button"
@@ -77,7 +77,7 @@ export const ReadBackBar: React.FC<ReadBackBarProps> = ({
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold shadow-lg shadow-emerald-950 transition active:scale-95"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>복창 확인</span>
+            <span>확정 · Pitch / F13</span>
           </button>
         </div>
       </div>

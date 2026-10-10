@@ -13,8 +13,10 @@ import { MOCK_SCENARIOS } from './data/mockScenarios'
 import { createReport, parseReportHistory, REPORT_HISTORY_KEY } from './data/reportHistory'
 import { Radio } from 'lucide-react'
 
+const apiEndpoint = import.meta.env.VITE_TACTICAL_API_ENDPOINT || 'http://localhost:8000/api/tactical-process'
 
 export const App: React.FC = () => {
+  const [mode, setMode] = useState<'demo' | 'api'>('demo')
   const [history] = useState(() => {
     try {
       const saved = localStorage.getItem(REPORT_HISTORY_KEY)
@@ -52,18 +54,18 @@ export const App: React.FC = () => {
     liveTranscript,
     notice,
     startPTT,
-    stopPTT,
+    togglePTT,
     resetToStandby,
   } = usePTT({
+    apiEndpoint,
     onReportGenerated: handleReportGenerated,
-    // UNO Q AI 서버 주소 (frontend/.env.local 의 VITE_API_URL). 없으면 데모 샘플 모드
-    apiEndpoint: import.meta.env.VITE_API_URL || undefined,
+    mode,
   })
 
   // 상급망 전파 승인 처리
   const handleConfirm = () => {
     stopSpeaking()
-    if (!activeReport) return
+    if (!activeReport || activeReport.confirmed || status === 'TRANSMITTING' || status === 'PROCESSING') return
     const updated = { ...activeReport, confirmed: true }
     setActiveReport(updated)
     setReports((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
@@ -72,9 +74,29 @@ export const App: React.FC = () => {
 
   // 재보고 처리
   const handleCancel = () => {
+    if (!activeReport || activeReport.confirmed || status === 'TRANSMITTING' || status === 'PROCESSING') return
     stopSpeaking()
+    setActiveReport(undefined)
     resetToStandby()
+    void startPTT()
   }
+
+  useEffect(() => {
+    const handleGestureKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable || event.repeat) return
+      if (!activeReport || activeReport.confirmed || status === 'TRANSMITTING' || status === 'PROCESSING') return
+      if (event.code === 'F13') {
+        event.preventDefault()
+        handleConfirm()
+      } else if (event.code === 'F14') {
+        event.preventDefault()
+        handleCancel()
+      }
+    }
+    window.addEventListener('keydown', handleGestureKey)
+    return () => window.removeEventListener('keydown', handleGestureKey)
+  }, [activeReport, status, handleConfirm, handleCancel])
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
@@ -85,15 +107,35 @@ export const App: React.FC = () => {
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: PTT Controller & Voice Logs (5 cols on lg) */}
         <div className="lg:col-span-5 flex flex-col gap-4">
+          <label className="text-sm text-zinc-300 flex items-center gap-3">
+            실행 모드
+            <select
+              value={mode}
+              disabled={status === 'TRANSMITTING' || status === 'PROCESSING'}
+              onChange={(event) => {
+                const nextMode = event.target.value as 'demo' | 'api'
+                stopSpeaking()
+                resetToStandby()
+                setMode(nextMode)
+                setActiveReport(undefined)
+              }}
+              className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 disabled:opacity-50"
+            >
+              <option value="demo">데모 · 샘플 보고서</option>
+              <option value="api">실제 API · 서버 응답</option>
+            </select>
+          </label>
+          <p className="text-sm text-zinc-400">
+            {mode === 'demo' ? '데모: 녹음 내용과 무관한 샘플을 사용합니다.' : '실제 API: 녹음을 서버로 전송합니다. 샘플은 생성하지 않습니다.'}
+          </p>
           {storageError && <p role="alert" className="text-sm text-red-300">{storageError}</p>}
           <p role="status" className="text-sm text-amber-300 border border-amber-600/40 rounded-lg p-3">
-            {notice || '데모 모드: 샘플 보고서를 표시합니다. 실제 AI는 연결되지 않았습니다.'}
+            {notice || (mode === 'demo' ? '데모 모드: 실제 AI는 연결되지 않았습니다.' : '실제 API 모드: 서버 연결 및 실제 모델 처리는 아직 검증되지 않았습니다.')}
           </p>
           <PTTControl
             status={status}
             audioLevel={audioLevel}
-            onStartPTT={startPTT}
-            onStopPTT={stopPTT}
+            onTogglePTT={() => { stopSpeaking(); void togglePTT() }}
           />
 
           <LiveTranscript
@@ -102,7 +144,7 @@ export const App: React.FC = () => {
           />
 
           <ReportHistory
-            reports={reports}
+            reports={reports.filter((report) => report.source === mode)}
             activeReportId={activeReport?.id || ''}
             onSelectReport={(rep) => {
               setActiveReport(rep)
@@ -114,7 +156,7 @@ export const App: React.FC = () => {
         {/* Right Column: Structured Tactical Reports & RAG Guidance (7 cols on lg) */}
         <div className="lg:col-span-7 flex flex-col gap-4">
           {/* Read-Back Voice Verification Bar (Appears when status is READ_BACK or unconfirmed report) */}
-          {activeReport && !activeReport.confirmed && (
+          {activeReport && !activeReport.confirmed && status !== 'TRANSMITTING' && status !== 'PROCESSING' && (
             <ReadBackBar
               readBackText={activeReport.read_back_text}
               isSpeaking={isSpeaking}
