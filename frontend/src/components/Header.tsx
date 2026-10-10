@@ -1,19 +1,48 @@
 import React, { useState, useEffect } from 'react'
-import { WifiOff, Radio, BatteryMedium, Clock, MapPin, Cpu } from 'lucide-react'
+import { Radio, MapPin, Cpu, Usb } from 'lucide-react'
 
 
 export const Header: React.FC = () => {
-  const [time, setTime] = useState<string>('')
+  const [uart, setUart] = useState<'checking' | 'connected' | 'busy' | 'unavailable'>('checking')
+  const [uartDetail, setUartDetail] = useState('보드 AI 응답 확인 중')
+  const [checkingUart, setCheckingUart] = useState(false)
+  const [uartRetry, setUartRetry] = useState(0)
 
   useEffect(() => {
-    const updateTime = () => {
-      const now = new Date()
-      setTime(now.toLocaleTimeString('ko-KR', { hour12: false }) + ' KST')
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout>
+    let controller: AbortController
+    const check = async () => {
+      controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15000)
+      setCheckingUart(true)
+      try {
+        const response = await fetch('/api/health', { signal: controller.signal, cache: 'no-store' })
+        const result = await response.json()
+        if (disposed) return
+        if (response.ok && result.transport === 'usb-uart' && ['HEALTHY', 'BUSY'].includes(result.status)) {
+          setUart(result.status === 'BUSY' ? 'busy' : 'connected')
+          setUartDetail(result.status === 'BUSY' ? 'USB 포트 인식됨 · AI 처리 중, 완료 후 응답 재확인' : '보드 AI가 USB UART로 응답했습니다.')
+        } else {
+          setUart('unavailable')
+          setUartDetail(result.detail || 'USB UART 보드 AI 응답을 확인할 수 없습니다.')
+        }
+      } catch {
+        if (!disposed) {
+          setUart('unavailable')
+          setUartDetail('USB 연결과 보드 AI 실행 상태를 확인하세요.')
+        }
+      } finally {
+        clearTimeout(timeout)
+        if (!disposed) {
+          setCheckingUart(false)
+          timer = setTimeout(check, 5000)
+        }
+      }
     }
-    updateTime()
-    const timer = setInterval(updateTime, 1000)
-    return () => clearInterval(timer)
-  }, [])
+    void check()
+    return () => { disposed = true; clearTimeout(timer); controller?.abort() }
+  }, [uartRetry])
 
   return (
     <header className="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur px-4 py-3 sticky top-0 z-50">
@@ -43,12 +72,6 @@ export const Header: React.FC = () => {
 
         {/* Right: Operational Status Badges (SC1 & SC2 Highlight) */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* SC1: 완전 오프라인 (Air-Gap) 뱃지 */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-mono font-semibold">
-            <WifiOff className="w-3.5 h-3.5 text-emerald-400" />
-            <span>오프라인 동작: 검증 전</span>
-          </div>
-
           {/* SC2: NUCODE 보드 하드웨어 연결 뱃지 */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/60 border border-amber-500/40 text-amber-300 text-xs font-mono font-semibold">
             <Cpu className="w-3.5 h-3.5 text-amber-400" />
@@ -63,17 +86,15 @@ export const Header: React.FC = () => {
             </button>
           </div>
 
-          {/* System Clock & Battery */}
-          <div className="hidden sm:flex items-center gap-3 px-3 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-400">
-            <span className="flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-zinc-400" />
-              {time}
-            </span>
-            <span className="flex items-center gap-1 text-emerald-400">
-              <BatteryMedium className="w-3.5 h-3.5" />
-              배터리: 확인 안 됨
-            </span>
+          {/* USB UART AI connection */}
+          <div title={uartDetail} role="status" className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-mono font-semibold ${uart === 'connected' ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' : 'bg-amber-950/60 border-amber-500/40 text-amber-300'}`}>
+            <Usb className="w-3.5 h-3.5" />
+            <span>UNO Q USB: {uart === 'connected' ? '연결됨' : uart === 'busy' ? 'AI 처리 중' : uart === 'checking' ? '확인 중' : '연결 대기'}</span>
+            <button type="button" disabled={checkingUart} onClick={() => setUartRetry(value => value + 1)} className="ml-1 rounded border border-current px-2 py-0.5 disabled:opacity-50">
+              {checkingUart ? '확인 중' : '다시 확인'}
+            </button>
           </div>
+
         </div>
       </div>
     </header>

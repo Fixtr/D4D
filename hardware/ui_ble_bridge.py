@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from aiohttp import web
 from bleak import BleakClient, BleakScanner
+from uart_ai_client import UartAIClient
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT.parent / 'frontend' / 'dist'
@@ -81,6 +82,32 @@ class Bridge:
             await self.wait_retry()
 
 bridge = Bridge()
+uart_ai = UartAIClient()
+
+async def uart_api(request):
+    if request.method == 'POST' and request.headers.get('Origin') != f'http://{request.host}':
+        raise web.HTTPForbidden()
+    try:
+        if request.method == 'GET':
+            uart_ai.port()
+            if uart_ai.lock.locked():
+                return web.json_response({'status': 'BUSY', 'transport': 'usb-uart'}, status=202)
+            status, result = await asyncio.to_thread(uart_ai.request, 'health')
+        else:
+            reader = await request.multipart()
+            field = await reader.next()
+            if field is None or field.name != 'audio':
+                return web.json_response({'detail': '녹음 파일이 필요합니다.'}, status=400)
+            audio = bytearray()
+            while chunk := await field.read_chunk():
+                audio.extend(chunk)
+                if len(audio) > 10 * 1024 * 1024:
+                    raise web.HTTPRequestEntityTooLarge(max_size=10*1024*1024, actual_size=len(audio))
+            status, result = await asyncio.to_thread(uart_ai.request, 'process', bytes(audio),
+                field.headers.get('Content-Type', 'audio/webm'), field.filename or 'audio.webm')
+        return web.json_response(result, status=status)
+    except (OSError, TimeoutError, ValueError) as error:
+        return web.json_response({'detail': f'USB UART 연결 오류: {error}'}, status=503)
 
 async def websocket(request):
     # A single page owns recording and question state. Reject foreign origins.
@@ -137,12 +164,14 @@ async def lifecycle(app):
         pass
 
 def create_app():
-    app = web.Application()
+    app = web.Application(client_max_size=11*1024*1024)
     app.cleanup_ctx.append(lifecycle)
     app.router.add_get('/', index)
     app.router.add_get('/hardware-adapter.js', adapter)
     app.router.add_get('/hardware/ws', websocket)
     app.router.add_get('/hardware/health', health)
+    app.router.add_get('/api/health', uart_api)
+    app.router.add_post('/api/tactical-process', uart_api)
     app.router.add_static('/assets/', DIST / 'assets')
     for asset in ('favicon.svg', 'icons.svg'):
         if (DIST / asset).exists():

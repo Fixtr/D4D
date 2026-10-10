@@ -1,5 +1,7 @@
 # 프론트엔드 ↔ NU40 BLE 연결
 
+AI 결과 수신은 USB UART 전용이다. UNO Q 설정은 [USB_UART_AI.md](USB_UART_AI.md)를 따른다. 장갑 모션 BLE와 AI UART는 별도 경로다.
+
 frontend를 빌드하고 hardware/ui_ble_bridge.py가 HTML에 ui_ble_adapter.js를 주입한다.
 웹 상단의 연결 시도 버튼은 브리지에 보드 재검색을 요청한다. 이미 검색 중이면 해당 검색을 계속하며, 재시도 대기 중이면 즉시 다시 검색한다.
 연결 시도 중 중복 클릭을 막고 연결되면 버튼을 숨긴다. 서버 주소 http://127.0.0.1:5173 (localhost).

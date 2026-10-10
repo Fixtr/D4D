@@ -13,10 +13,11 @@ import { MOCK_SCENARIOS } from './data/mockScenarios'
 import { createReport, parseReportHistory, REPORT_HISTORY_KEY } from './data/reportHistory'
 import { Radio } from 'lucide-react'
 
-const apiEndpoint = import.meta.env.VITE_TACTICAL_API_ENDPOINT || 'http://localhost:8000/api/tactical-process'
+// AI transport is exclusively the local USB UART bridge; never a LAN URL.
+const apiEndpoint = '/api/tactical-process'
 
 export const App: React.FC = () => {
-  const [mode, setMode] = useState<'demo' | 'api'>('demo')
+  const [mode, setMode] = useState<'demo' | 'api'>('api')
   const [history] = useState(() => {
     try {
       const saved = localStorage.getItem(REPORT_HISTORY_KEY)
@@ -122,15 +123,15 @@ export const App: React.FC = () => {
               className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 disabled:opacity-50"
             >
               <option value="demo">데모 · 샘플 보고서</option>
-              <option value="api">실제 API · 서버 응답</option>
+              <option value="api">USB UART · 보드 AI</option>
             </select>
           </label>
           <p className="text-sm text-zinc-400">
-            {mode === 'demo' ? '데모: 녹음 내용과 무관한 샘플을 사용합니다.' : '실제 API: 녹음을 서버로 전송합니다. 샘플은 생성하지 않습니다.'}
+            {mode === 'demo' ? '데모: 녹음 내용과 무관한 샘플을 사용합니다.' : 'USB UART: 녹음을 유선으로 UNO Q에 전송합니다.'}
           </p>
           {storageError && <p role="alert" className="text-sm text-red-300">{storageError}</p>}
           <p role="status" className="text-sm text-amber-300 border border-amber-600/40 rounded-lg p-3">
-            {notice || (mode === 'demo' ? '데모 모드: 실제 AI는 연결되지 않았습니다.' : '실제 API 모드: 서버 연결 및 실제 모델 처리는 아직 검증되지 않았습니다.')}
+            {notice || (mode === 'demo' ? '데모 모드: 실제 AI는 연결되지 않았습니다.' : 'UNO Q를 USB로 연결하고 보드의 UART AI를 실행하세요.')}
           </p>
           <PTTControl
             status={status}

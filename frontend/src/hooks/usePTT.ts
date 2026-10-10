@@ -158,7 +158,7 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint, mod
     if (mode === 'api' && apiEndpoint && audioChunks.length > 0) {
       const controller = new AbortController()
       // UNO Q 실측 처리 시간 16~19초 (READBACK_MODE=llm 이면 +17~37초)
-      const timeout = setTimeout(() => controller.abort(), 60000)
+      const timeout = setTimeout(() => controller.abort(), 210000)
       try {
         const mimeType = recorder?.mimeType || audioChunks[0]?.type
         const format = mimeType?.split(';')[0].trim().toLowerCase()
@@ -179,7 +179,7 @@ export function usePTT({ onReportGenerated, onTranscriptUpdate, apiEndpoint, mod
           throw new Error(typeof detail === 'string' ? detail : `AI 서버 응답 오류: ${res.status}`)
         }
         processedReport = parseApiReport(await res.json())
-        setNotice('API 응답 수신: 실제 모델 처리 여부는 서버에서 확인해야 합니다.')
+        setNotice('USB UART: UNO Q의 AI 결과를 수신했습니다.')
       } catch (error) {
         setNotice(controller.signal.aborted ? 'AI 서버 응답 시간이 초과됐습니다. 다시 녹음하세요.' : error instanceof Error && error.name !== 'TypeError' ? `${error.message} 다시 녹음하세요.` : 'AI 서버에 연결할 수 없습니다. 서버 주소와 실행 상태를 확인하고 다시 녹음하세요.')
         setLiveTranscript('')

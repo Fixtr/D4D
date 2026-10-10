@@ -4,4 +4,5 @@ python-multipart>=0.0.9
 # 브라우저 녹음(WebM/Opus, MP4/AAC) → WAV 변환 (ffmpeg 내장 wheel)
 av>=12.0
 numpy>=1.26
+msgpack>=1.1,<2
 # clika_runtime 은 PyPI 패키지가 아니라 wheel 로 별도 설치 (setup_uno_q.sh 참고)

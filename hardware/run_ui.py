@@ -1,12 +1,10 @@
 """Build the existing frontend and run its local NU40 BLE bridge.
 
-Also configures the UNO Q AI server address (frontend/.env.local), checks that the
-server answers, and fetches a portable Node.js when none is installed.
+AI uses the local USB UART bridge. Fetches portable Node.js when needed.
 --dev runs the Vite dev server without BLE (hot reload, for UI development).
 """
 import argparse
 import importlib.util
-import json
 import os
 from pathlib import Path
 import platform
@@ -23,9 +21,6 @@ import zipfile
 HARDWARE = Path(__file__).resolve().parent
 REPO = HARDWARE.parent
 FRONTEND = REPO / 'frontend'
-ENV_FILE = FRONTEND / '.env.local'
-ENV_KEY = 'VITE_TACTICAL_API_ENDPOINT'
-DEFAULT_BOARD = '192.168.0.139'
 NODE_VERSION = 'v22.20.0'
 NODE_CACHE = Path.home() / '.cache' / 'd4d-node'
 
@@ -94,31 +89,9 @@ def ensure_ble_venv():
         return python, [uv, 'pip', 'install', '--python', python]
     raise SystemExit('pip is missing in hardware/.venv. Delete it and install python3-venv or uv.')
 
-def configure_api(target):
-    """Write the UNO Q API address to frontend/.env.local (read by vite build/dev)."""
-    url = ''
-    if target:
-        url = target if target.startswith('http') else f'http://{target}:8000/api/tactical-process'
-    elif ENV_FILE.exists():
-        for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
-            if line.startswith(ENV_KEY + '='):
-                url = line.split('=', 1)[1].strip()
-    url = url or f'http://{DEFAULT_BOARD}:8000/api/tactical-process'
-    ENV_FILE.write_text(f'{ENV_KEY}={url}\n', encoding='utf-8')
-    print(f'AI server: {url} (saved to frontend/.env.local)', flush=True)
-    health = url.split('/api/')[0] + '/api/health'
-    try:
-        with urllib.request.urlopen(health, timeout=5) as response:
-            print(f'AI server OK: {json.load(response)}', flush=True)
-    except Exception as error:
-        print(f'WARNING: AI server not reachable ({health}: {error}).', flush=True)
-        print('  Start it on the board: ~/D4D/ai_pipeline/run_uno_q.sh  (same Wi-Fi required)', flush=True)
-        print('  The UI still starts; "실제 API" mode uploads will fail until the server is up.', flush=True)
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--build-only', action='store_true', help='Install dependencies and build, without starting BLE/server')
-    parser.add_argument('--api', metavar='IP_OR_URL', help=f'UNO Q AI server (board IP or full URL). Default: frontend/.env.local, else {DEFAULT_BOARD}')
     parser.add_argument('--dev', action='store_true', help='Run the Vite dev server without BLE (hot reload)')
     args = parser.parse_args()
     if sys.version_info < (3, 10):
@@ -132,12 +105,11 @@ def main():
             except OSError:
                 raise SystemExit('Port 5173 is already in use. Open http://localhost:5173 or stop the existing server first.')
     node_env, npm = ensure_node()
-    configure_api(args.api)
 
     if args.dev:
         print('Installing frontend dependencies...', flush=True)
         run([npm, 'ci'], FRONTEND, node_env)
-        print('Dev mode (no BLE): open http://localhost:5173, choose "실제 API", allow microphone. Ctrl+C to stop.', flush=True)
+        print('Dev mode (no BLE): open http://localhost:5173, allow microphone; USB UART requires the normal bridge runner. Ctrl+C to stop.', flush=True)
         run([npm, 'run', 'dev'], FRONTEND, node_env)
         return
 
@@ -150,7 +122,7 @@ def main():
     if args.build_only:
         print('Build complete. BLE/server was not started.', flush=True)
         return
-    print('Open http://localhost:5173, choose "실제 API", and allow microphone access. Close other NU40 BLE peers.', flush=True)
+    print('Open http://localhost:5173, use USB UART mode and allow microphone access. Close other NU40 BLE peers.', flush=True)
     run([python, HARDWARE / 'ui_ble_bridge.py'])
 
 if __name__ == '__main__':
