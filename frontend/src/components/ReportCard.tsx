@@ -202,6 +202,16 @@ export const ReportCard: React.FC<ReportCardProps> = ({ report }) => {
         </div>
       </div>
 
+      {/* 한 줄 명령 요약 (UNO Q 서버 응답) */}
+      {report.command_text && (
+        <div className="mt-3 flex items-start gap-2 bg-emerald-950/40 border border-emerald-700/50 rounded-lg px-3 py-2">
+          <span className="shrink-0 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-emerald-600/60 text-emerald-300">
+            {report.command_source === 'llm' ? '명령 · LLM' : '명령 · 규칙'}
+          </span>
+          <p className="text-sm font-mono font-bold text-emerald-100">{report.command_text}</p>
+        </div>
+      )}
+
       {/* Render Specific Report Content */}
       {report.report_type === 'SALUTE' && renderSalute(report.data as SaluteData)}
       {report.report_type === 'SITREP' && renderSitrep(report.data as SitrepData)}

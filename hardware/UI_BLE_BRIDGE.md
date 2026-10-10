@@ -17,14 +17,36 @@ Windows:
 hardware\run_ui.cmd
 ```
 
-스크립트는 hardware/.venv 생성 → BLE Python 의존성 설치 → frontend npm ci → npm run build → localhost BLE 서버 실행 순서로 처리한다.
+스크립트는 Node.js 확인(없으면 휴대용 Node 22를 ~/.cache/d4d-node에 받음) → AI 서버 주소 설정·연결 확인 → hardware/.venv 생성 → BLE Python 의존성 설치 → frontend npm ci → npm run build → localhost BLE 서버 실행 순서로 처리한다.
+
+### 옵션
+| 옵션 | 동작 |
+| --- | --- |
+| `--api <보드IP 또는 URL>` | UNO Q AI 서버 주소를 `frontend/.env.local`에 기록. 생략하면 기존 값, 없으면 `192.168.0.139` |
+| `--dev` | BLE 없이 Vite 개발 서버 실행 (화면 개발·핫 리로드용, 블루투스가 없는 WSL에서 사용) |
+| `--build-only` | 의존성 설치와 빌드만 수행 |
+
+예: `bash hardware/run_ui.sh --api 192.168.0.139` (NU40 연동), `bash hardware/run_ui.sh --dev` (BLE 없이 UI만).
+화면의 실행 모드를 **실제 API**로 바꿔야 녹음이 AI 서버로 전송된다. AI 서버는 보드에서 `~/D4D/ai_pipeline/run_uno_q.sh`로 실행한다.
 http://localhost:5173에 접속하고 마이크를 허용한다. 종료는 Ctrl+C.
 기존 hardware/ui_ble_test.cmd도 같은 통합 실행 스크립트로 연결된다.
 빌드만 검증하려면 위 명령 뒤에 --build-only를 붙인다.
-Node.js/npm과 Python 3.10+가 필요하다. Debian/UNO Q에서는 python3-venv도 설치되어 있어야 한다.
+Python 3.10+가 필요하다. Node.js 20.19+/22.12+가 없으면 휴대용 Node를 자동으로 받는다. Debian/UNO Q에서는 python3-venv도 설치되어 있어야 한다.
 첫 실행의 패키지 설치에는 인터넷이 필요하다. OS Bluetooth가 켜져 있어야 한다.
 현재 PC의 기존 BLE 콘솔/브리지를 종료한 뒤 다른 기기에서 실행한다. 포트 5173 사용 중이면 기존 서버를 자동 종료하지 않고 안내한다.
-이 명령은 frontend와 BLE 브리지만 실행한다. 실제 AI API 서버는 별도로 실행한다.
+이 명령은 frontend와 BLE 브리지만 실행한다. 실제 AI API 서버는 별도로 실행한다(시작 시 연결 여부만 확인).
+## UNO Q에서 실행 (NU40 ↔ UNO Q BLE, 노트북은 브라우저만)
+UNO Q가 NU40의 BLE Central이 되고 화면·AI도 보드에서 실행한다. 노트북 브라우저는 SSH 터널로 접속한다.
+브리지는 보드의 localhost에만 열리고, IP 주소(http)로 열면 브라우저가 마이크를 막기 때문이다.
+
+1. 보드 (SSH 창 1): `~/D4D/ai_pipeline/run_uno_q.sh` → AI 서버
+2. 보드 (SSH 창 2): `cd ~/D4D && bash hardware/run_ui.sh --api 192.168.0.139` → 빌드 후 BLE 브리지
+3. 노트북: `ssh -N -L 5173:localhost:5173 arduino@192.168.0.139` (창을 열어 둔다)
+4. 노트북 브라우저: http://localhost:5173 → 실행 모드 "실제 API" → 마이크 허용
+
+보드 준비물: Node.js 22(nvm), uv(setup_uno_q.sh가 설치). python3-venv가 없으면 uv로 hardware/.venv를 만든다.
+2026-10-10 UNO Q에서 빌드·실행, NU40 BLE 연결(ble_connected=true), 노트북 터널 접속을 확인했다. 실제 녹음→보고서 흐름은 브라우저에서 확인한다.
+
 ## 동작
 - NU40 s → 화면 녹음 시작 버튼. e → 녹음 종료 버튼. 이미 해당 상태이면 중복 입력 무시.
 - 화면 보고서 처리 완료 → BLE q 질문 활성화. y → 기존 F13 확정, n → 기존 F14 재녹음.

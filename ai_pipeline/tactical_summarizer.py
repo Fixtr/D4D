@@ -1,11 +1,12 @@
 """
-온디바이스 전술 요약기 (규칙 추출 + 선택적 ClikaRT modelverse Qwen2.5-0.5B-Instruct 복창)
+온디바이스 전술 요약기 (규칙 추출 + ClikaRT modelverse Qwen2.5-0.5B-Instruct 명령 요약)
 STT로 인식된 무전 텍스트를 군 표준 보고 양식(SALUTE / SITREP / 9-Line MEDEVAC)으로
-구조화하고, 복창(Read-back) 문장과 함께 보고 스크립트 파일로 저장
+구조화하고, 명령 요약·복창(Read-back) 문장과 함께 보고 스크립트 파일로 저장
 
 - 보고 종류, 위협수준, data 필드: tactical_rules 의 정규식 규칙으로 즉시 추출
+- 명령 요약 한 줄: COMMAND_MODE=llm(기본)이면 ClikaRT LLM 생성, rule 이면 규칙 문장
+  (LLM 출력이 원문에 없는 숫자·단어를 쓰면 규칙 문장으로 대체, command_source 로 구분)
 - 복창 요약 한 문장: 기본은 규칙 문장, READBACK_MODE=llm 이면 ClikaRT LLM 생성
-  (LLM이 원문에 없는 숫자를 만들면 규칙 문장으로 대체)
 
 규칙 근거: T4-2_Voice_First_Tactical_AI_Guide.md 4.1, 4.3 / API_CONTRACT.md 2
 - report_type 은 SALUTE, SITREP, 9-Line MEDEVAC 중 하나
@@ -32,6 +33,14 @@ SCRIPT_DIR = os.getenv("SCRIPT_DIR", os.path.join(os.path.dirname(os.path.abspat
 # rule: 규칙 문장만 사용 (모델 미로드, 즉시 응답) / llm: 복창 문장을 LLM으로 생성
 # UNO Q 실측: llm 은 건당 17~37초에 원문에 없는 표현을 덧붙여 rule 을 기본값으로 둠
 READBACK_MODE = os.getenv("READBACK_MODE", "rule")
+# llm: 명령 요약을 Qwen 으로 생성 (UNO Q 실측 건당 5~10초) / rule: 규칙 문장 (모델 미로드)
+COMMAND_MODE = os.getenv("COMMAND_MODE", "llm")
+# 명령 요약 프롬프트: 원문 단어만 쓰는 짧은 명령문. 0.5B 모델은 규칙 설명보다 예시를 더 잘 따른다
+COMMAND_PROMPT = "무전 원문에서 중요한 사실만 골라 한 줄 명령문으로 줄인다. 원문 단어와 숫자만 쓴다. 호출부호, 오버는 뺀다. 20자 안팎."
+COMMAND_EXAMPLES = (
+    ("여기는 매 둘, 전방 200미터 계곡에서 적 차량 2대 남쪽 이동 중, 오버", "적 차량 2대 계곡 남쪽 이동"),
+    ("여기는 3분대, 부상자 2명 발생, 출혈 심함, LZ 호랑이, 메디백 요청, 오버", "부상자 2명 LZ 호랑이 메디백 요청"),
+)
 
 READBACK_PROMPT = (
     "너는 대한민국 육군 무전병이다. 무전 원문을 상급 부대 복창용 한 문장으로 짧게 요약한다.\n"
@@ -41,16 +50,20 @@ READBACK_PROMPT = (
 
 
 class TacticalSummarizer:
-    def __init__(self, model_id: str = LLM_MODEL, script_dir: str = SCRIPT_DIR, readback_mode: str = READBACK_MODE):
-        self.model_id = model_id if readback_mode == "llm" else "rule-based"
+    def __init__(self, model_id: str = LLM_MODEL, script_dir: str = SCRIPT_DIR,
+                 readback_mode: str = READBACK_MODE, command_mode: str = COMMAND_MODE):
+        self.readback_mode = readback_mode
+        self.command_mode = command_mode
+        use_llm = "llm" in (readback_mode, command_mode)
+        self.model_id = model_id if use_llm else "rule-based"
         self.script_dir = script_dir
         os.makedirs(self.script_dir, exist_ok=True)
         self.model = None
-        if readback_mode == "llm":
+        if use_llm:
             import clika_runtime.modelverse as mv
 
-            # 서버 기동 시 1회 로드 (요청마다 로드하지 않음)
-            self.model = mv.AutoModelForCausalLM.from_pretrained(model_id, device="cpu")
+            # 서버 기동 시 1회 로드 (요청마다 로드하지 않음). 짧은 입출력만 쓰므로 KV 창을 1024로 제한
+            self.model = mv.AutoModelForCausalLM.from_pretrained(model_id, device="cpu", max_seq=1024)
         # chat 엔진은 KV 캐시를 재사용하므로 동시 호출을 직렬화
         self._lock = threading.Lock()
 
@@ -63,9 +76,30 @@ class TacticalSummarizer:
             reply = self.model.chat(messages, max_new_tokens=max_new_tokens, temperature=0.0)
         return reply.strip().splitlines()[0] if reply.strip() else ""
 
+    def command_summary(self, report_type: str, data: Dict[str, str], transcript: str) -> Dict[str, str]:
+        """중요 내용만 담은 한 줄 명령 요약. LLM 결과가 원문에 근거하지 않으면 규칙 문장으로 대체"""
+        fallback = {"text": rules.template_read_back_summary(report_type, data, transcript), "source": "rule"}
+        if self.command_mode != "llm" or self.model is None:
+            return fallback
+        messages = [{"role": "system", "content": COMMAND_PROMPT}]
+        for spoken, command in COMMAND_EXAMPLES:
+            messages += [{"role": "user", "content": spoken}, {"role": "assistant", "content": command}]
+        messages.append({"role": "user", "content": transcript})
+        try:
+            with self._lock:
+                reply = self.model.chat(messages, max_new_tokens=32, temperature=0.0)
+        except Exception as e:
+            logger.warning("LLM 명령 요약 실패, 규칙 문장 사용: %s", e)
+            return fallback
+        command = reply.strip().splitlines()[0].strip(" .\"'") if reply.strip() else ""
+        if not command or len(command) > 60 or not rules.is_command_grounded(command, transcript):
+            logger.warning("LLM 명령 요약 검증 실패, 규칙 문장 사용: %r", reply)
+            return fallback
+        return {"text": command, "source": "llm"}
+
     def read_back_summary(self, report_type: str, data: Dict[str, str], transcript: str) -> str:
         fallback = rules.template_read_back_summary(report_type, data, transcript)
-        if self.model is None:
+        if self.readback_mode != "llm" or self.model is None:
             return fallback
         try:
             summary = self._llm_read_back(transcript)
@@ -82,6 +116,7 @@ class TacticalSummarizer:
         report_type = rules.classify_report_type(transcript)
         data = rules.extract_fields(report_type, transcript)
         summary = self.read_back_summary(report_type, data, transcript)
+        command = self.command_summary(report_type, data, transcript)
         return {
             "id": str(uuid.uuid4()),
             "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -92,6 +127,9 @@ class TacticalSummarizer:
             "read_back_text": rules.format_read_back(report_type, summary),
             "recommended_action": sop.strip(),
             "confirmed": False,
+            # API_CONTRACT 공통 필드 외 추가 정보: 한 줄 명령 요약과 생성 방식 (llm | rule)
+            "command_text": command["text"],
+            "command_source": command["source"],
         }
 
     def render_script(self, report: Dict[str, Any]) -> str:
@@ -104,6 +142,9 @@ class TacticalSummarizer:
             "",
             f"[보고유형] {report['report_type']}",
             f"[위협수준] {report['threat_level']}",
+            "",
+            f"[명령 요약 ({'LLM' if report.get('command_source') == 'llm' else '규칙'})]",
+            report.get("command_text", ""),
             "",
             "[원문 (STT)]",
             report["raw_transcript"],

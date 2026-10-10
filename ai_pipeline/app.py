@@ -41,7 +41,9 @@ def run_stt(wav_bytes: bytes) -> str:
 
 @app.get("/api/health")
 def health():
-    return {"status": "HEALTHY", "mode": "ON_DEVICE_AIR_GAP", "model": "ClikaRT-Qwen2.5-1.5B", "stt_model": STT_MODEL, "llm_model": summarizer.model_id}
+    # 실제 로드된 모델만 표시 (LLM 미사용이면 llm_model 은 "rule-based")
+    return {"status": "HEALTHY", "mode": "ON_DEVICE_AIR_GAP", "runtime": "ClikaRT (CPU)", "stt_model": STT_MODEL,
+            "llm_model": summarizer.model_id, "command_mode": summarizer.command_mode, "readback_mode": summarizer.readback_mode}
 
 @app.post("/api/tactical-process")
 async def process_tactical_voice(audio: UploadFile = File(...)):
