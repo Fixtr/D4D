@@ -14,6 +14,7 @@ venv/
 __pycache__/
 *.py[cod]
 *.log
+work/
 
 # Local data and downloaded models
 all_showcases.json

@@ -1,7 +1,8 @@
 # 프론트엔드 ↔ NU40 BLE 연결
 
-최신 main의 frontend를 그대로 빌드하고 hardware/ui_ble_bridge.py가 HTML에 ui_ble_adapter.js를 주입한다.
-frontend 소스 변경 없음. 서버 주소 http://127.0.0.1:5173 (localhost).
+frontend를 빌드하고 hardware/ui_ble_bridge.py가 HTML에 ui_ble_adapter.js를 주입한다.
+웹 상단의 연결 시도 버튼은 브리지에 보드 재검색을 요청한다. 이미 검색 중이면 해당 검색을 계속하며, 재시도 대기 중이면 즉시 다시 검색한다.
+연결 시도 중 중복 클릭을 막고 연결되면 버튼을 숨긴다. 서버 주소 http://127.0.0.1:5173 (localhost).
 BLE Central은 이 Python 프로세스 하나다. 기존 ble_recording_peer.py 콘솔은 종료한다.
 
 ## 한 번에 빌드하고 실행

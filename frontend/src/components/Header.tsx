@@ -52,7 +52,15 @@ export const Header: React.FC = () => {
           {/* SC2: NUCODE 보드 하드웨어 연결 뱃지 */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/60 border border-amber-500/40 text-amber-300 text-xs font-mono font-semibold">
             <Cpu className="w-3.5 h-3.5 text-amber-400" />
-            <span>NUCODE BLE: 연결 확인 안 됨</span>
+            <span>NUCODE BLE: 연결 대기</span>
+            <button
+              type="button"
+              data-nu40-connect
+              onClick={() => window.dispatchEvent(new Event('nu40-connect'))}
+              className="ml-1 rounded border border-amber-500/50 px-2 py-0.5 hover:bg-amber-900/60 focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-50 disabled:cursor-wait"
+            >
+              연결 시도
+            </button>
           </div>
 
           {/* System Clock & Battery */}

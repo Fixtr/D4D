@@ -1,4 +1,4 @@
-"""Serve the existing frontend build with a BLE adapter. No frontend source edits.
+"""Serve the frontend build with a BLE adapter and manual connection requests.
 Python dependencies: bleak, aiohttp. Bind localhost by default.
 """
 import asyncio
@@ -19,6 +19,14 @@ class Bridge:
         self.lock = asyncio.Lock()
         self.connected = False
         self.sequence = 0
+        self.retry = asyncio.Event()
+
+    async def wait_retry(self):
+        try:
+            await asyncio.wait_for(self.retry.wait(), timeout=3)
+        except asyncio.TimeoutError:
+            pass
+        self.retry.clear()
 
     async def emit(self, **message):
         if self.ui and not self.ui.closed:
@@ -44,7 +52,7 @@ class Bridge:
                     lambda d, a: a.local_name == 'NU40-BLE-Test', timeout=15)
                 if not device:
                     await self.emit(type='status', connected=False, message='NU40 검색 중')
-                    await asyncio.sleep(3)
+                    await self.wait_retry()
                     continue
                 async with BleakClient(device) as client:
                     self.client = client
@@ -70,7 +78,7 @@ class Bridge:
                 self.connected = False
                 self.client = None
                 await self.emit(type='status', connected=False)
-            await asyncio.sleep(3)
+            await self.wait_retry()
 
 bridge = Bridge()
 
@@ -92,7 +100,11 @@ async def websocket(request):
                 message = json.loads(item.data)
             except (ValueError, TypeError):
                 continue
-            if message.get('type') == 'state' and message.get('recording') in (True, False):
+            if message.get('type') == 'connect':
+                if not bridge.connected:
+                    bridge.retry.set()
+                await bridge.emit(type='status', connected=bridge.connected)
+            elif message.get('type') == 'state' and message.get('recording') in (True, False):
                 await bridge.write('a' if message['recording'] else 'z')
             elif message.get('type') == 'question':
                 sent = await bridge.write('q')

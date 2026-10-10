@@ -66,7 +66,7 @@ void updateImus(uint32_t now) {
     uint8_t data[14];
     if (!imuRead(imu.address,imu.mpu?0x3B:0x22,data,imu.mpu?14:12)) {
       if (Serial) Serial.println("ERROR IMU_READ_FAILED");
-      resetShake(); continue;
+      resetMotionCalibrationWindow(); resetShake(); continue;
     }
     char line[160];
     float accel[3],gyro[3];
