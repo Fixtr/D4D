@@ -27,3 +27,6 @@ all_showcases.json
 *.gguf
 *.safetensors
 *.onnx
+
+# Generated tactical report scripts
+ai_pipeline/scripts/
