@@ -9,7 +9,7 @@ from tactical_summarizer import TacticalSummarizer
 import uvicorn
 
 # ClikaRT modelverse 온디바이스 STT 설정
-STT_MODEL = os.getenv("STT_MODEL", "openai/whisper-tiny")
+STT_MODEL = os.getenv("STT_MODEL", "openai/whisper-base")
 STT_LANGUAGE = os.getenv("STT_LANGUAGE", "ko")
 # 전술 용어 바이어싱 프롬프트 (Whisper 이전 문맥으로 사용)
 STT_PROMPT = "SALUTE, SITREP, MEDEVAC, 좌표, 적 전차, 오버, 이상"
@@ -53,17 +53,20 @@ async def process_tactical_voice(audio: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"음성인식 실패: {e}")
     
-    # 2. 전술 JSON 추출 및 RAG 교범 조치 매칭
-    result = engine.extract_tactical_json(transcript)
+    if not transcript:
+        raise HTTPException(status_code=400, detail="인식 가능한 발화가 없습니다.")
 
-    # 3. sLLM 전술 요약 및 스크립트 파일 저장
+    # 2. RAG 교범 조치 매칭
+    sop = engine.retrieve_sop(transcript)
+
+    # 3. sLLM 표준 양식(SALUTE/SITREP/9-Line MEDEVAC) 구조화 및 스크립트 파일 저장
     try:
-        script = await run_in_threadpool(summarizer.summarize_and_save, transcript)
+        script = await run_in_threadpool(summarizer.summarize_and_save, transcript, sop)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"전술 요약 실패: {e}")
-    result["tactical_summary"] = script["summary"]
+        raise HTTPException(status_code=503, detail=f"전술 요약 실패: {e}")
+    result = script["report"]
     result["script_path"] = script["script_path"]
-    
+
     return result
 
 if __name__ == "__main__":
