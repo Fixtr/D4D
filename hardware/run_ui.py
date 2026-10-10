@@ -89,9 +89,9 @@ def ensure_ble_venv():
         else:
             raise SystemExit('Python venv/pip is unavailable. Install python3-venv (sudo apt install python3-venv) or uv.')
     if subprocess.run([str(python), '-m', 'pip', '--version'], capture_output=True).returncode == 0:
-        return python, [python, '-m', 'pip']
+        return python, [python, '-m', 'pip', 'install']
     if uv:
-        return python, [uv, 'pip', '--python', python]
+        return python, [uv, 'pip', 'install', '--python', python]
     raise SystemExit('pip is missing in hardware/.venv. Delete it and install python3-venv or uv.')
 
 def configure_api(target):
@@ -141,9 +141,9 @@ def main():
         run([npm, 'run', 'dev'], FRONTEND, node_env)
         return
 
-    python, pip = ensure_ble_venv()
+    python, pip_install = ensure_ble_venv()
     print('Installing BLE dependencies...', flush=True)
-    run(pip + ['install', '-r', HARDWARE / 'requirements-ui.txt'])
+    run(pip_install + ['-r', HARDWARE / 'requirements-ui.txt'])
     print('Installing frontend dependencies and building...', flush=True)
     run([npm, 'ci'], FRONTEND, node_env)
     run([npm, 'run', 'build'], FRONTEND, node_env)
