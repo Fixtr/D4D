@@ -3,7 +3,9 @@ import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import clika_runtime.modelverse as mv
+from audio_io import InvalidAudioError, UnsupportedAudioError, to_wav_16k
 from tactical_engine import TacticalEngine
 from tactical_summarizer import TacticalSummarizer
 import uvicorn
@@ -32,9 +34,9 @@ summarizer = TacticalSummarizer()
 transcribe = mv.pipeline("automatic-speech-recognition", model=STT_MODEL)
 
 
-def run_stt(audio_bytes: bytes) -> str:
-    """업로드된 오디오(인코딩된 bytes)를 ClikaRT Whisper로 텍스트 변환"""
-    result = transcribe(audio_bytes, language=STT_LANGUAGE, prompt=STT_PROMPT)
+def run_stt(wav_bytes: bytes) -> str:
+    """16kHz 모노 WAV bytes를 ClikaRT Whisper로 텍스트 변환"""
+    result = transcribe(wav_bytes, language=STT_LANGUAGE, prompt=STT_PROMPT)
     return result["text"].strip()
 
 @app.get("/api/health")
@@ -44,15 +46,21 @@ def health():
 @app.post("/api/tactical-process")
 async def process_tactical_voice(audio: UploadFile = File(...)):
     audio_bytes = await audio.read()
-    if not audio_bytes:
-        raise HTTPException(status_code=400, detail="빈 오디오 파일입니다.")
+
+    # 0. 브라우저 녹음(WebM/MP4 등) → 16kHz 모노 WAV (ClikaRT 디코더 미지원 형식 변환)
+    try:
+        wav_bytes = await run_in_threadpool(to_wav_16k, audio_bytes, audio.content_type)
+    except UnsupportedAudioError as e:
+        raise HTTPException(status_code=415, detail=str(e))
+    except InvalidAudioError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # 1. 음성인식 (STT) - CPU 연산이므로 이벤트 루프를 막지 않도록 스레드풀에서 실행
     try:
-        transcript = await run_in_threadpool(run_stt, audio_bytes)
+        transcript = await run_in_threadpool(run_stt, wav_bytes)
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"음성인식 실패: {e}")
-    
+        raise HTTPException(status_code=503, detail=f"음성인식 실패: {e}")
+
     if not transcript:
         raise HTTPException(status_code=400, detail="인식 가능한 발화가 없습니다.")
 
@@ -64,10 +72,32 @@ async def process_tactical_voice(audio: UploadFile = File(...)):
         script = await run_in_threadpool(summarizer.summarize_and_save, transcript, sop)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"전술 요약 실패: {e}")
-    result = script["report"]
+    # 4. 브라우저로 결과 반환: 보고서 JSON + 스크립트 본문 + 저장 파일 다운로드 주소
+    result = dict(script["report"])
+    result["script_text"] = script["script_text"]
+    result["json_url"] = f"/api/reports/{result['id']}.json"
+    result["script_url"] = f"/api/reports/{result['id']}/script"
     result["script_path"] = script["script_path"]
 
     return result
+
+
+@app.get("/api/reports/{report_id}.json")
+def download_report_json(report_id: str):
+    """보드에 저장된 보고서 JSON 다운로드"""
+    path = summarizer.find_output(report_id, "json")
+    if path is None:
+        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+    return FileResponse(path, media_type="application/json", filename=os.path.basename(path))
+
+
+@app.get("/api/reports/{report_id}/script")
+def download_report_script(report_id: str):
+    """보드에 저장된 보고 스크립트(.txt) 다운로드"""
+    path = summarizer.find_output(report_id, "txt")
+    if path is None:
+        raise HTTPException(status_code=404, detail="보고 스크립트를 찾을 수 없습니다.")
+    return FileResponse(path, media_type="text/plain; charset=utf-8", filename=os.path.basename(path))
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

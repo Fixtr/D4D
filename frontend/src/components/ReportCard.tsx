@@ -15,8 +15,29 @@ import {
   MapPin, 
   Users, 
   Activity, 
-  Shield 
+  Shield,
+  Download
 } from 'lucide-react'
+
+// 브라우저에서 파일로 저장 (서버 응답에 담긴 내용으로 생성하므로 보드와 다른 출처여도 동작)
+function saveFile(filename: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadJson(report: TacticalReport) {
+  // 화면 전용 값(출처 표시, 스크립트 본문, 다운로드 경로)을 뺀 API 규격 보고서만 저장
+  const body: Partial<TacticalReport> = { ...report }
+  delete body.source
+  delete body.script_text
+  delete body.json_url
+  delete body.script_url
+  saveFile(`tactical_${report.id}.json`, JSON.stringify(body, null, 2), 'application/json')
+}
 
 interface ReportCardProps {
   report: TacticalReport
@@ -149,6 +170,24 @@ export const ReportCard: React.FC<ReportCardProps> = ({ report }) => {
 
         {/* Confirmation Status */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => downloadJson(report)}
+            className="flex items-center gap-1 px-2 py-1 rounded border border-zinc-700 text-zinc-300 text-xs font-mono hover:border-emerald-500 hover:text-emerald-300 transition"
+          >
+            <Download className="w-3.5 h-3.5" />
+            JSON 저장
+          </button>
+          {report.script_text && (
+            <button
+              type="button"
+              onClick={() => saveFile(`tactical_${report.id}.txt`, report.script_text ?? '', 'text/plain;charset=utf-8')}
+              className="flex items-center gap-1 px-2 py-1 rounded border border-zinc-700 text-zinc-300 text-xs font-mono hover:border-emerald-500 hover:text-emerald-300 transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              스크립트 저장
+            </button>
+          )}
           {report.confirmed ? (
             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold">
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -167,6 +206,14 @@ export const ReportCard: React.FC<ReportCardProps> = ({ report }) => {
       {report.report_type === 'SALUTE' && renderSalute(report.data as SaluteData)}
       {report.report_type === 'SITREP' && renderSitrep(report.data as SitrepData)}
       {report.report_type === '9-Line MEDEVAC' && renderMedevac(report.data as MedevacData)}
+
+      {/* UNO Q 서버가 저장한 보고 스크립트 */}
+      {report.script_text && (
+        <details className="mt-4 bg-zinc-950/70 border border-zinc-800 rounded-lg">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-mono text-zinc-400">보고 스크립트 보기</summary>
+          <pre className="px-3 pb-3 text-xs font-mono text-zinc-300 whitespace-pre-wrap">{report.script_text}</pre>
+        </details>
+      )}
     </div>
   )
 }
